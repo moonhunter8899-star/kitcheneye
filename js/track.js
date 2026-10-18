@@ -31,6 +31,7 @@ const BOUNCE_COOLDOWN_S = 0.4;
  */
 const BALL_PRESETS = {
   'franklin-x40': { label: 'Franklin X-40 · optic yellow', hMean: 68, hRange: 18, sMin: 45, vMin: 45 },
+  'lifetime':     { label: 'Lifetime · orange',            hMean: 30, hRange: 15, sMin: 55, vMin: 45 },
   'neon-green':   { label: 'Neon green',                    hMean: 100, hRange: 20, sMin: 45, vMin: 40 },
   'orange':       { label: 'Orange',                        hMean: 32, hRange: 14, sMin: 55, vMin: 45 },
 };
