@@ -27,6 +27,7 @@
     manualTaps: [],
     calls: [],              // dispute-replay records (persisted)
     replayId: null,
+    ballPreset: 'franklin-x40',   // auto ball-color preset (tap refines it)
     score: null,            // Score instance (js/score.js)
     scorePrefs: { mode: 'doubles', target: 11, teamUs: 'Us', teamThem: 'Them', speech: false },
   };
@@ -227,10 +228,48 @@
   }
 
   // ---------- ball calibration ----------
+  function presetLabel() {
+    const p = (typeof BALL_PRESETS !== 'undefined') && BALL_PRESETS[S.ballPreset];
+    return p ? p.label : 'custom color';
+  }
+
   function enterCalibrate() {
     showScreen('calibrate');
     drawCalPreview();
-    setStatus('cal-status', 'Tap the ball in the picture so the tracker learns its color.');
+    selectPreset(S.ballPreset || 'franklin-x40');
+  }
+
+  // Apply a known ball color; then check the live view for a ball so the
+  // user gets confirmation without having to tap anything.
+  function selectPreset(name) {
+    S.ballPreset = name;
+    S.tracker.calibratePreset(name);
+    document.querySelectorAll('#preset-row .preset').forEach(b =>
+      b.classList.toggle('active', b.dataset.preset === name));
+    setStatus('cal-status', 'Ball color: ' + presetLabel() + '. Hold a ball in view — checking…');
+    clearTimeout(S.verifyT);
+    S.verifyT = setTimeout(verifyBall, 900);
+  }
+
+  function verifyBall() {
+    if (S.screen !== 'calibrate') return;
+    try {
+      const v = S.video;
+      if (!v || !v.videoWidth) return;
+      S.proc.width = 480;
+      S.proc.height = Math.round(480 * v.videoHeight / v.videoWidth);
+      let found = 0;
+      for (let k = 0; k < 3; k++) {
+        S.pctx.drawImage(v, 0, 0, S.proc.width, S.proc.height);
+        const img = S.pctx.getImageData(0, 0, S.proc.width, S.proc.height);
+        if (S.tracker.detect(img, S.proc.width, S.proc.height)) found++;
+      }
+      if (found > 0) {
+        setStatus('cal-status', 'Ball found (' + presetLabel() + ') — tap "Start judging".');
+      } else {
+        setStatus('cal-status', 'No ball in view yet — hold one up, or tap the ball in the picture to teach it.');
+      }
+    } catch (e) { /* leave the status as-is */ }
   }
 
   function drawCalPreview() {
@@ -256,8 +295,9 @@
       const g = c.getContext('2d');
       g.strokeStyle = '#39ff88'; g.lineWidth = 3;
       g.strokeRect(x - 8, y - 8, 16, 16);
-      setStatus('cal-status', 'Ball color learned. Tap "Start judging".');
-      $('btn-start-judge').disabled = false;
+      S.ballPreset = 'custom';
+      document.querySelectorAll('#preset-row .preset').forEach(b => b.classList.remove('active'));
+      setStatus('cal-status', 'Custom color learned from your tap. Tap "Start judging".');
     } catch (e) {
       setStatus('cal-status', 'Could not sample there — tap directly on the ball.');
     }
@@ -557,6 +597,8 @@
     window.addEventListener('resize', () => { if (S.video && S.video.videoWidth) sizeOverlay(); });
     S.overlay.addEventListener('click', onOverlayTap);
     $('cal-canvas').addEventListener('click', onCalTap);
+    document.querySelectorAll('#preset-row .preset').forEach(b =>
+      b.addEventListener('click', () => selectPreset(b.dataset.preset)));
 
     $('btn-setup').addEventListener('click', async () => {
       S.courtName = ($('court-name').value || 'home-court').trim() || 'home-court';

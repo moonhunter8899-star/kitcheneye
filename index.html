@@ -52,10 +52,16 @@
 <!-- ============ BALL CALIBRATION ============ -->
 <section id="screen-calibrate" class="screen hidden">
   <div class="wrap">
-    <h2>Teach it the ball</h2>
+    <h2>Ball color</h2>
     <p id="cal-status" class="status"></p>
+    <div class="row" id="preset-row">
+      <button class="preset" data-preset="franklin-x40" type="button">X-40 yellow</button>
+      <button class="preset" data-preset="neon-green" type="button">Neon green</button>
+      <button class="preset" data-preset="orange" type="button">Orange</button>
+    </div>
     <canvas id="cal-canvas" class="preview"></canvas>
-    <button id="btn-start-judge" class="big primary" disabled>Start judging</button>
+    <p class="hint">Tap the ball above to fine-tune the color, or just start judging.</p>
+    <button id="btn-start-judge" class="big primary">Start judging</button>
   </div>
 </section>
 

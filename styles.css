@@ -58,6 +58,14 @@ button.big.armed { background: #7a2e12; border-color: #a34a1f; }
 .stage canvas { position: absolute; inset: 0; }
 .controls { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
 .preview { width: 100%; border-radius: 12px; border: 1px solid var(--border); }
+.hint { color: var(--muted); font-size: 13px; margin: 8px 0; }
+#preset-row { display: flex; gap: 8px; margin: 4px 0 10px; }
+.preset {
+  flex: 1; padding: 12px 4px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); font-size: 13px; font-weight: 700;
+}
+.preset.active { border-color: var(--accent); color: var(--accent); }
 
 /* judge screen */
 .banner {

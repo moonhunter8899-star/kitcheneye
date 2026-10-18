@@ -24,6 +24,17 @@ const MAX_BLOB = 4000;    // max (rejects huge blobs: shirts, court patches)
 const VY_MIN = 120;       // min incoming vertical speed for a bounce (px/s)
 const BOUNCE_COOLDOWN_S = 0.4;
 
+/**
+ * Known ball colors (H 0-360, S/V 0-100, same scale as rgbToHsv).
+ * Franklin X-40 optic yellow is the tournament-standard outdoor ball,
+ * so it is the default — no tap needed.
+ */
+const BALL_PRESETS = {
+  'franklin-x40': { label: 'Franklin X-40 · optic yellow', hMean: 68, hRange: 18, sMin: 45, vMin: 45 },
+  'neon-green':   { label: 'Neon green',                    hMean: 100, hRange: 20, sMin: 45, vMin: 40 },
+  'orange':       { label: 'Orange',                        hMean: 32, hRange: 14, sMin: 55, vMin: 45 },
+};
+
 function rgbToHsv(r, g, b) {
   r /= 255; g /= 255; b /= 255;
   const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
@@ -86,6 +97,15 @@ class BallTracker {
     this.hRange = 16;
     this.sMin = Math.max(25, Math.min(...ss) - 25);
     this.vMin = Math.max(25, Math.min(...vs) - 30);
+    this.calibrated = true;
+    this.reset();
+  }
+
+  /** Use a known ball color instead of a tap (default: Franklin X-40). */
+  calibratePreset(name) {
+    const p = BALL_PRESETS[name] || BALL_PRESETS['franklin-x40'];
+    this.hMean = p.hMean; this.hRange = p.hRange;
+    this.sMin = p.sMin; this.vMin = p.vMin;
     this.calibrated = true;
     this.reset();
   }
@@ -194,5 +214,5 @@ class BallTracker {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { BallTracker, rgbToHsv, hueDist };
+  module.exports = { BallTracker, rgbToHsv, hueDist, BALL_PRESETS };
 }
