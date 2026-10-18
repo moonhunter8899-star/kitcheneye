@@ -125,10 +125,13 @@ class NetSync {
   _hostAccept(conn) {
     var self = this;
     conn.on('open', function () {
-      self.peers.set(conn.peer, { conn: conn, name: 'Phone' });
+      self.peers.set(conn.peer, { conn: conn, name: 'Phone', announced: false });
       conn.on('data', function (msg) { self._hostData(conn.peer, msg); });
       conn.on('close', function () { self._hostDrop(conn.peer); });
       conn.on('error', function () { self._hostDrop(conn.peer); });
+      // Prompt the joiner to (re)send hello — its first hello may have
+      // arrived before this data handler was attached.
+      try { if (conn.open) conn.send({ t: 'welcome' }); } catch (e) {}
     });
   }
 
@@ -146,7 +149,11 @@ class NetSync {
     }
     if (msg.t === 'hello') {
       if (p) p.name = String(msg.name || 'Phone').slice(0, 24);
-      if (this.onJoinCb) { try { this.onJoinCb(peerId, p ? p.name : 'Phone'); } catch (e) {} }
+      // Idempotent: the joiner may hello twice (on open + on welcome).
+      if (p && !p.announced) {
+        p.announced = true;
+        if (this.onJoinCb) { try { this.onJoinCb(peerId, p.name); } catch (e) {} }
+      }
       return;
     }
     if (this.onHostMsgCb) { try { this.onHostMsgCb(peerId, msg); } catch (e) {} }
@@ -248,6 +255,12 @@ class NetSync {
     if (!msg || typeof msg !== 'object') return;
     if (msg.t === 'pong' && this._pingCb) {
       try { this._pingCb(msg); } catch (e) {}
+      return;
+    }
+    if (msg.t === 'welcome') {
+      // Host is ready for our hello (its data handler may have missed the
+      // one we sent on open). Harmless to send twice — the host dedups.
+      try { this.send({ t: 'hello', name: this.name }); } catch (e) {}
       return;
     }
     if (this.onMessageCb) { try { this.onMessageCb(msg); } catch (e) {} }

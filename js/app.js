@@ -326,6 +326,16 @@
     updateArmUI();
     renderScoreboard();
     drawMiniCourt(null);
+    // Live view on the judge screen: same stream, own video element, so the
+    // user watches the ball get tracked (green ring + trail) in real time.
+    try {
+      const jv = $('judge-video');
+      if (jv && S.stream) {
+        if (jv.srcObject !== S.stream) jv.srcObject = S.stream;
+        jv.play().catch(function () {});
+      }
+      sizeJudgeOverlay();
+    } catch (e) {}
     setStatus('judge-status', 'Tap "Start point", then serve. The phone calls each bounce.');
     if (!S.judging) { S.judging = true; requestAnimationFrame(judgeLoop); }
   }
@@ -337,6 +347,8 @@
       const v = S.video;
       if (v && v.videoWidth && v.readyState >= 2) {
         if (S.proc.width !== 480) sizeOverlay();
+        const jo = $('judge-overlay');
+        if (jo && (jo.width !== v.videoWidth || jo.height !== v.videoHeight)) sizeJudgeOverlay();
         S.pctx.drawImage(v, 0, 0, S.proc.width, S.proc.height);
         const img = S.pctx.getImageData(0, 0, S.proc.width, S.proc.height);
         const nowS = ts / 1000;
@@ -350,8 +362,18 @@
     requestAnimationFrame(judgeLoop);
   }
 
+  function sizeJudgeOverlay() {
+    const v = S.video, jo = $('judge-overlay');
+    if (!v || !v.videoWidth || !jo) return;
+    jo.width = v.videoWidth;
+    jo.height = v.videoHeight;
+    S.jctx = jo.getContext('2d');
+  }
+
   function drawJudgeOverlay(det) {
-    const c = S.octx, W = S.overlay.width, Hh = S.overlay.height;
+    const c = S.jctx || S.octx, W = (S.jctx ? $('judge-overlay').width : S.overlay.width),
+          Hh = (S.jctx ? $('judge-overlay').height : S.overlay.height);
+    if (!c) return;
     c.clearRect(0, 0, W, Hh);
     if (det && S.tracker.hasTrack) {
       const q = v2px(det);
