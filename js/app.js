@@ -964,7 +964,18 @@
 
     window.addEventListener('resize', () => { if (S.video && S.video.videoWidth) sizeOverlay(); });
     S.overlay.addEventListener('click', onOverlayTap);
+    // iOS Safari doesn't reliably fire click on <canvas> — handle touches
+    // directly (preventDefault suppresses the delayed synthetic click, so no
+    // double-count). Touch objects carry clientX/clientY like mouse events.
+    S.overlay.addEventListener('touchstart', function (ev) {
+      ev.preventDefault();
+      onOverlayTap(ev.changedTouches[0]);
+    }, { passive: false });
     $('cal-canvas').addEventListener('click', onCalTap);
+    $('cal-canvas').addEventListener('touchstart', function (ev) {
+      ev.preventDefault();
+      onCalTap(ev.changedTouches[0]);
+    }, { passive: false });
     document.querySelectorAll('#preset-row .preset').forEach(b =>
       b.addEventListener('click', () => selectPreset(b.dataset.preset)));
 

@@ -8,8 +8,10 @@ Host it on GitHub Pages — camera access needs HTTPS.
 
 ## What v1 does
 
-- **Court scan** (`js/scan.js`): grab a frame, find white lines with a Hough
-  transform, fit the best quadrilateral to the 20×44 ft court template
+- **Court scan** (`js/scan.js`): grab a frame, find court lines with a Hough
+  transform — brightness at two thresholds plus a yellow-line pass for
+  blended courts (yellow pickleball lines over white tennis lines) — fit the
+  best quadrilateral to the 20×44 ft court template
   (kitchen + centerlines break the symmetry so orientation resolves), show
   the detected quad for a human "looks right?", then compute the homography
   (pixel → court feet). Manual fallback: tap the 4 corners in order.

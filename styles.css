@@ -55,7 +55,8 @@ button.big.armed { background: #7a2e12; border-color: #a34a1f; }
 .stage video, .stage canvas {
   display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
 }
-.stage canvas { position: absolute; inset: 0; }
+.stage canvas { position: absolute; inset: 0; touch-action: none; }
+#cal-canvas { touch-action: none; }
 .controls { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
 .preview { width: 100%; border-radius: 12px; border: 1px solid var(--border); }
 .hint { color: var(--muted); font-size: 13px; margin: 8px 0; }

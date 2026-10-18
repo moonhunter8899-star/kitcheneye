@@ -51,17 +51,32 @@ function grayscale(data, w, h) {
   return g;
 }
 
-/** Luminance threshold at the BRIGHT_FRAC percentile (histogram-based). */
-function brightThreshold(g) {
+/** Luminance threshold at the given bright-fraction percentile (histogram-based). */
+function brightThreshold(g, frac) {
+  const f = (typeof frac === 'number') ? frac : BRIGHT_FRAC;
   const hist = new Uint32Array(256);
   for (let i = 0; i < g.length; i++) hist[g[i]]++;
-  let need = Math.floor(g.length * BRIGHT_FRAC);
+  let need = Math.floor(g.length * f);
   let t = 255;
   for (; t > 0; t--) {
     need -= hist[t];
     if (need <= 0) break;
   }
   return Math.max(t, BRIGHT_MIN);
+}
+
+/**
+ * "Yellow-ness" per pixel: high R and G, low B. Pickleball lines are often
+ * painted yellow over a competing white line set (e.g. blended tennis
+ * courts) — this pass isolates them when brightness alone is ambiguous.
+ */
+function yellowScore(data, w, h) {
+  const y = new Uint8ClampedArray(w * h);
+  for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+    const yv = Math.min(data[i], data[i + 1]) - data[i + 2];
+    y[j] = yv > 0 ? yv : 0;
+  }
+  return y;
 }
 
 /**
@@ -236,31 +251,49 @@ function assignments(quad) {
 }
 
 /**
- * Full auto-scan. Returns { corners:[{x,y}x4] (detection-px), H, score, w, h }
+ * Full auto-scan. Tries several "line-ness" passes — plain brightness at two
+ * thresholds plus a yellow-line pass for blended courts — and keeps the best
+ * template match. Returns { corners:[{x,y}x4] (detection-px), H, score, w, h }
  * or null when nothing convincing was found. minScore lets callers accept
  * weaker matches on retry (the human confirm step stays the safety net).
  */
 function detectCourt(video, segments, minScore) {
   const { canvas, ctx, w, h } = grabFrame(video);
   const img = ctx.getImageData(0, 0, w, h);
-  const g = grayscale(img.data, w, h);
-  const thresh = brightThreshold(g);
+  const gray = grayscale(img.data, w, h);
+  const yellow = yellowScore(img.data, w, h);
+  const passes = [
+    { g: gray, frac: BRIGHT_FRAC },
+    { g: gray, frac: 0.05 },
+    { g: yellow, frac: 0.10 },
+  ];
+  let best = null;
+  for (const p of passes) {
+    const r = detectOn(p.g, w, h, segments, p.frac, minScore);
+    if (r && (!best || r.score > best.score)) best = r;
+  }
+  return best;
+}
+
+/** One detection pass over a per-pixel line-ness array. */
+function detectOn(g, w, h, segments, frac, minScore) {
+  const thresh = brightThreshold(g, frac);
   const lines = houghLines(g, w, h, thresh);
   const groups = splitOrientations(lines);
   if (!groups) return null;
   const [gA, gB] = groups;
-  const topA = gA.slice(0, 8), topB = gB.slice(0, 8);
+  const topA = gA.slice(0, 6), topB = gB.slice(0, 6);
 
   // Sample bright pixels once for template scoring.
   const samples = [];
-  const stride = Math.max(1, Math.floor((w * h) / 4000));
+  const stride = Math.max(1, Math.floor((w * h) / 2500));
   for (let i = 0; i < w * h; i += stride) {
     if (g[i] >= thresh) samples.push({ x: i % w, y: (i / w) | 0 });
   }
   if (samples.length < 50) return null;
 
   let best = null;
-  const m = 24; // allow intersections slightly outside frame
+  const m = 40; // allow intersections slightly outside frame
   for (const a1 of topA) for (const a2 of topA) {
     if (a1 === a2) continue;
     for (const b1 of topB) for (const b2 of topB) {
@@ -274,7 +307,17 @@ function detectCourt(video, segments, minScore) {
       for (const assign of assignments(quad)) {
         let H;
         try { H = homography(assign, COURT_RECT); } catch (e) { continue; }
+        // Coarse pre-filter on a subset before the full scoring pass.
         let hits = 0;
+        const step = 4;
+        for (let si = 0; si < samples.length; si += step) {
+          const s = samples[si];
+          const [X, Y] = applyHomography(H, s.x, s.y);
+          if (distToSegs(X, Y, segments) <= SCORE_TOL_FT) hits++;
+        }
+        const coarse = hits / Math.ceil(samples.length / step);
+        if (best && coarse < best.score * 0.6) continue;
+        hits = 0;
         for (const s of samples) {
           const [X, Y] = applyHomography(H, s.x, s.y);
           if (distToSegs(X, Y, segments) <= SCORE_TOL_FT) hits++;
@@ -315,5 +358,5 @@ function listCourts() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { homography, applyHomography, intersect, splitOrientations, distToSegs, buildFromCorners, SCORE_MIN };
+  module.exports = { homography, applyHomography, intersect, splitOrientations, distToSegs, buildFromCorners, yellowScore, brightThreshold, detectOn, detectCourt, SCORE_MIN };
 }
