@@ -100,6 +100,7 @@ class NetSync {
     this.onLeaveCb = null;
     this.onMessageCb = null;  // joiner: incoming host message
     this.onHostMsgCb = null;  // host: (peerId, msg)
+    this.onServerCb = null;   // cb(up) on signaling-server link state
     this._pingCb = null;
   }
 
@@ -111,6 +112,11 @@ class NetSync {
     try { console.warn('[netsync]', (e && e.message) || e); } catch (_) {}
     if (onErr && !this._errSilenced) { try { onErr(e); } catch (_) {} }
   }
+
+  // ---------------- host ----------------
+
+  /** cb(up:boolean) — true when the server link is (re)established. */
+  onServer(cb) { this.onServerCb = cb; }
 
   // ---------------- host ----------------
 
@@ -131,10 +137,16 @@ class NetSync {
         self._err(onErr, e); reject(e); return;
       }
       self.peer = peer;
-      peer.on('open', function () { resolve(self.code); });
+      peer.on('open', function () {
+        resolve(self.code);
+        if (self.onServerCb) { try { self.onServerCb(true); } catch (e2) {} }
+      });
       peer.on('connection', function (conn) { self._hostAccept(conn); });
       peer.on('error', function (e) { self._err(onErr, e); });
-      peer.on('disconnected', function () { try { peer.reconnect(); } catch (e2) {} });
+      peer.on('disconnected', function () {
+        if (self.onServerCb) { try { self.onServerCb(false); } catch (e2) {} }
+        try { peer.reconnect(); } catch (e3) {} // re-registers the same room code
+      });
     });
   }
 
@@ -370,6 +382,7 @@ class NetSync {
     this.code = null;
     this._pingCb = null;
     this._errSilenced = false;
+    this.onServerCb = null;
   }
 }
 

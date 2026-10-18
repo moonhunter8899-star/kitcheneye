@@ -836,6 +836,14 @@
         renderLobbyPeers();
       });
       net.onHostMessage(onHostMessage);
+      net.onServer((up) => {
+        if (S.net !== net || S.netRole !== 'host') return;
+        // The room only exists while the host holds its server link —
+        // if this drops (sleep/background), joiners get "peer unavailable".
+        setLobbyStatus(up
+          ? 'Waiting for phones…'
+          : 'Lost the match server — reconnecting… keep this screen open and the phone awake.');
+      });
       renderLobbyPeers();
       setLobbyStatus('Waiting for phones…');
     } catch (e) {
@@ -869,9 +877,14 @@
       setJoinStatus('Connected! Now scan the court from your spot.');
       $('btn-join-scan').classList.remove('hidden');
     } catch (e) {
-      // Surface the real reason (peer-unavailable, timeout, …) — not just
-      // the generic line — so a failure can actually be diagnosed.
-      setJoinStatus('Could not join (' + (e && e.message ? e.message : e) + '). Check the code and your internet, then try again.');
+      // Surface the real reason. "Could not connect to peer" means the room
+      // is gone on the server — the host phone left the Room code screen or
+      // went to sleep — so say that instead of blaming the code/internet.
+      const msg = e && e.message ? e.message : String(e);
+      const roomGone = /could not connect to peer|peer-unavailable/i.test(msg);
+      setJoinStatus(roomGone
+        ? 'That room is gone — the host phone probably left the Room code screen or fell asleep. Keep the host on that screen and try again, or have the host make a fresh room.'
+        : 'Could not join (' + msg + '). Check the code and your internet, then try again.');
       $('btn-join').classList.remove('hidden');
     }
   }
@@ -1114,6 +1127,21 @@
         setTimeout(joinMatch, 500);
       }
     } catch (e) {}
+
+    // v2: if the host tab was asleep/backgrounded, its server link may have
+    // dropped (joiners then get "peer unavailable"). Re-register on wake.
+    function netServerCheck() {
+      if (S.netRole === 'host' && S.net && S.net.peer && !S.netDead) {
+        try {
+          if (S.net.peer.disconnected && !S.net.peer.destroyed) {
+            setLobbyStatus('Reconnecting to the match server…');
+            S.net.peer.reconnect();
+          }
+        } catch (e) {}
+      }
+    }
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) netServerCheck(); });
+    window.addEventListener('focus', netServerCheck);
   }
 
   if (document.readyState === 'loading') {

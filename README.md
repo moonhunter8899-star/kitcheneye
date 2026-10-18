@@ -164,6 +164,12 @@ node --check js/score.js && node /tmp/test-score.js          # scoring
   the guard), its calls mirror too — rescan if the replay diagram looks
   flipped.
 - **Host is a single point of failure.** Host dies → match over.
+- **Keep the host awake while phones join.** The room only exists while
+  the host phone holds its link to the match server. If the host's screen
+  sleeps, Safari backgrounds, or it leaves the Room code screen, the room
+  vanishes and joiners get "that room is gone". The app now auto-reconnects
+  when the host tab wakes and says so on screen — but during the join phase,
+  keep the host on the Room code screen with the screen on.
 - **Size comparison assumes equal processing.** All phones run detection
   at 480 px wide, so blob sizes are comparable. A phone with heavy
   digital zoom would report inflated sizes — don't zoom.
