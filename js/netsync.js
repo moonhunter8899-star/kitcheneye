@@ -93,7 +93,7 @@ class NetSync {
 
   _err(onErr, e) {
     try { console.warn('[netsync]', (e && e.message) || e); } catch (_) {}
-    if (onErr) { try { onErr(e); } catch (_) {} }
+    if (onErr && !this._errSilenced) { try { onErr(e); } catch (_) {} }
   }
 
   // ---------------- host ----------------
@@ -186,7 +186,10 @@ class NetSync {
 
   /**
    * Join a room. Resolves with the host DataConnection on open;
-   * rejects after 15 s (or immediately on a bad code / missing PeerJS).
+   * rejects after 15 s (or promptly on a bad code / dead server /
+   * unknown room). IMPORTANT: peer.connect() must wait for the peer's
+   * 'open' event — connecting earlier silently drops the WebRTC offer
+   * (PeerJS Socket.send drops while the socket hasn't started).
    */
   async joinRoom(code, name, onErr) {
     var self = this;
@@ -210,44 +213,53 @@ class NetSync {
         self._err(onErr, e); reject(e); return;
       }
       self.peer = peer;
-      var conn;
+      var conn = null;
       var done = false;
-      var timer = setTimeout(function () {
+      function fail(e) {
         if (done) return;
-        done = true;
-        var e2 = new Error('join timed out');
-        self._err(onErr, e2);
-        try { conn.close(); } catch (_) {}
-        reject(e2);
-      }, JOIN_TIMEOUT_MS);
-      try {
-        conn = peer.connect(PEER_PREFIX + clean, { reliable: true });
-      } catch (e) {
         done = true; clearTimeout(timer);
-        self._err(onErr, e); reject(e); return;
+        self._err(onErr, e);
+        try { if (conn) conn.close(); } catch (_) {}
+        try { peer.destroy(); } catch (_) {}
+        reject(e);
       }
-      self.conn = conn;
-      conn.on('open', function () {
+      var timer = setTimeout(function () {
+        fail(new Error('join timed out'));
+      }, JOIN_TIMEOUT_MS);
+      peer.on('open', function () {
         if (done) return;
-        done = true; clearTimeout(timer);
-        conn.on('data', function (msg) { self._joinerData(msg); });
-        conn.on('close', function () {
-          if (self.onLeaveCb) { try { self.onLeaveCb(); } catch (e) {} }
+        var c;
+        try {
+          c = peer.connect(PEER_PREFIX + clean, { reliable: true });
+        } catch (e) { fail(e); return; }
+        conn = c;
+        self.conn = c;
+        c.on('open', function () {
+          if (done) return;
+          done = true; clearTimeout(timer);
+          self._errSilenced = true; // later hiccups have their own paths; don't rewrite the status
+          c.on('data', function (msg) { self._joinerData(msg); });
+          c.on('close', function () {
+            if (self.onLeaveCb) { try { self.onLeaveCb(); } catch (e2) {} }
+          });
+          try { c.send({ t: 'hello', name: self.name }); } catch (e2) {}
+          // Clock sync is best-effort: resolve either way so a flaky sync
+          // never blocks joining the match.
+          self._syncClock().then(
+            function () { resolve(c); },
+            function () { resolve(c); }
+          );
         });
-        try { conn.send({ t: 'hello', name: self.name }); } catch (e) {}
-        // Clock sync is best-effort: resolve either way so a flaky sync
-        // never blocks joining the match.
-        self._syncClock().then(
-          function () { resolve(conn); },
-          function () { resolve(conn); }
-        );
+        c.on('error', function (e) { fail(e); });
       });
-      conn.on('error', function (e) {
-        if (done) return;
-        done = true; clearTimeout(timer);
-        self._err(onErr, e); reject(e);
+      peer.on('error', function (e) {
+        // Before connect: server/network errors. After connect: a wrong
+        // code surfaces here as 'peer-unavailable' — fail fast instead of
+        // hanging until the 15 s timeout.
+        if (!done && (!conn || !conn.open)) fail(e);
+        else self._err(onErr, e);
       });
-      peer.on('error', function (e) { self._err(onErr, e); });
+      peer.on('disconnected', function () { try { peer.reconnect(); } catch (e2) {} });
     });
   }
 
@@ -341,6 +353,7 @@ class NetSync {
     this.role = null;
     this.code = null;
     this._pingCb = null;
+    this._errSilenced = false;
   }
 }
 
