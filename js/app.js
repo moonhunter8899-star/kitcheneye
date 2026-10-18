@@ -23,6 +23,8 @@
     netPeers: [],            // v2 host: [{id, name}] of joined phones
     netDead: false,          // v2 joiner: host vanished mid-match
     camsLocked: false,       // v2 host: director confirmed all camera feeds
+    myCorner: null,          // v2 joiner: declared corner TL|TR|BL|BR
+    matchFormat: 'doubles',  // v2 host: 'singles' (2 phones) | 'doubles' (4 phones)
     arb: null,               // v2 host: bounce-arbitration window state
     pendingStart: false,     // v2 joiner: host started while we were scanning
     lastWhoWonAt: 0,         // v2 host: debounce cross-phone who-won taps
@@ -204,7 +206,19 @@
       if (p) { try { S.net.send({ t: 'campos', x: +p.x.toFixed(1), y: +p.y.toFixed(1) }); } catch (e) {} }
     }
     if (S.netRole === 'host') renderCamWall();
+    let cornerWarn = null;
+    if (S.netRole === 'joiner' && S.myCorner) {
+      const q = cornerQuadrant(cameraCourtPos());
+      if (q && q !== S.myCorner) {
+        cornerWarn = 'Heads up: your scan looks like ' + CORNERS[q].label +
+          ' but you tapped ' + CORNERS[S.myCorner].label + '. If the court looks wrong, rescan.';
+      }
+    }
     enterCalibrate();
+    if (cornerWarn) {
+      const el = $('cal-status');
+      if (el) el.textContent = cornerWarn + ' ' + el.textContent;
+    }
   }
 
   function persistCourt() {
@@ -332,6 +346,10 @@
   // ---------- judging ----------
   function enterJudge() {
     showScreen('judge');
+    // Host = the judge's chair: one big court picture with the ball trail
+    // and landing spot (Hawk-Eye style). Its camera keeps tracking with the
+    // video element hidden.
+    $('screen-judge').classList.toggle('host-view', S.netRole === 'host');
     S.armed = false;
     hideWhoWon();
     updateArmUI();
@@ -400,7 +418,7 @@
   }
 
   // Build the dispute-replay record for a judged bounce (shared solo + net).
-  function buildCallRecord(cx, cy, res) {
+  function buildCallRecord(cx, cy, res, trail) {
     return {
       id: 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36),
       at: Date.now(),
@@ -411,13 +429,14 @@
       call: res.call,
       inside: res.inside,
       marginIn: S.marginIn,
+      trail: trail || null,
     };
   }
 
   // Render a call everywhere it needs to go: banner, sound, history.
   function handleCall(rec) {
     const res = { call: rec.call, distIn: rec.distIn, line: rec.line, inside: rec.inside };
-    showCall(res, rec.x, rec.y);
+    showCall(res, rec.x, rec.y, rec.trail);
     callSound(rec.call);
     S.calls.unshift(rec);
     if (S.calls.length > 100) S.calls.length = 100;
@@ -439,19 +458,20 @@
     if (cx < -8 || cx > 28 || cy < -8 || cy > 52) return;
     if (S.netDead) return; // session died: never fall back to guessing locally
     const size = (b && Number.isFinite(b.size)) ? b.size : 0;
+    const trail = courtTrail();
     if (netActive()) {
       // v2: report to the host; every phone renders calls only from {t:'call'}.
       const at = S.net.toHostTime(b.t);
       if (S.netRole === 'host') {
-        hostCollectBounce({ x: cx, y: cy, at: at, size: size, from: 'host' });
+        hostCollectBounce({ x: cx, y: cy, at: at, size: size, from: 'host', trail: trail });
       } else {
-        try { S.net.send({ t: 'bounce', x: cx, y: cy, at: at, size: size }); } catch (e) {}
+        try { S.net.send({ t: 'bounce', x: cx, y: cy, at: at, size: size, trail: trail }); } catch (e) {}
       }
       return;
     }
     // Solo: judge and show locally, exactly as before.
     const res = judge(cx, cy, S.marginIn);
-    handleCall(buildCallRecord(cx, cy, res));
+    handleCall(buildCallRecord(cx, cy, res, trail));
   }
 
   // ---- v2 host: bounce arbitration. First report opens a 300 ms window;
@@ -475,20 +495,20 @@
       A.lastCallAt = now;
       A.lastCallPos = { x: win.x, y: win.y };
       const res = judge(win.x, win.y, S.marginIn);
-      const rec = buildCallRecord(win.x, win.y, res);
+      const rec = buildCallRecord(win.x, win.y, res, win.trail);
       try { S.net.broadcast({ t: 'call', rec: rec, by: 'host' }); } catch (e) {}
       handleCall(rec);
     }, 300);
   }
 
-  function showCall(res, cx, cy) {
+  function showCall(res, cx, cy, trail) {
     const banner = $('call-banner');
     banner.textContent = res.call;
     banner.className = 'banner show ' + res.call.toLowerCase().replace(' ', '-');
     $('call-detail').textContent =
       res.line + ' · ' + res.distIn.toFixed(1) + ' in from paint · at (' +
       cx.toFixed(1) + ', ' + cy.toFixed(1) + ') ft';
-    drawMiniCourt({ x: cx, y: cy, call: res.call });
+    drawMiniCourt({ x: cx, y: cy, call: res.call, trail: trail });
     clearTimeout(S.bannerT);
     S.bannerT = setTimeout(() => banner.classList.remove('show'), 3500);
   }
@@ -500,8 +520,17 @@
     let dots = '';
     if (bounce) {
       const color = bounce.call === 'IN' ? '#39ff88' : bounce.call === 'OUT' ? '#ff5d5d' : '#ffd24d';
-      dots = '<circle cx="' + (bounce.x * sx).toFixed(1) + '" cy="' + (bounce.y * sy).toFixed(1) +
-             '" r="9" fill="' + color + '" stroke="#fff" stroke-width="2"/>';
+      // Ball trail, oldest -> newest, growing and brightening.
+      if (bounce.trail && bounce.trail.length) {
+        const n = bounce.trail.length;
+        dots = bounce.trail.map((p, i) => {
+          const o = (i + 1) / n;
+          return '<circle cx="' + (p[0] * sx).toFixed(1) + '" cy="' + (p[1] * sy).toFixed(1) +
+                 '" r="' + (3 + o * 4).toFixed(1) + '" fill="#39ff88" opacity="' + (0.2 + o * 0.6).toFixed(2) + '"/>';
+        }).join('');
+      }
+      dots += '<circle class="landing-pulse" cx="' + (bounce.x * sx).toFixed(1) + '" cy="' + (bounce.y * sy).toFixed(1) +
+             '" r="10" fill="' + color + '" stroke="#fff" stroke-width="2.5"/>';
     }
     svg.innerHTML =
       '<rect x="0" y="0" width="200" height="300" fill="#1d3b2a"/>' +
@@ -702,6 +731,11 @@
       });
     } else if (msg.t === 'who-won') {
       hostWhoWon(msg.team);
+    } else if (msg.t === 'corner') {
+      const p = S.netPeers.find(x => x.id === peerId);
+      if (p && CORNERS[msg.corner]) p.corner = msg.corner;
+      S.camsLocked = false; // positions changed -> host re-confirms
+      renderCamWall();
     } else if (msg.t === 'campos') {
       // Director wall: a phone reports where it stands (court feet).
       const p = S.netPeers.find(x => x.id === peerId);
@@ -731,6 +765,7 @@
       }
       updateArmUI();
     } else if (msg.t === 'start') {
+      stopMonitorStream(); // director wall was setup-only; save bandwidth now
       if (S.screen === 'lobby') {
         enterJudge();
         setStatus('judge-status', 'Connected to host — tap "Start point", then serve.');
@@ -786,7 +821,7 @@
   function netClose() {
     S.netSeq = (S.netSeq || 0) + 1; // invalidates in-flight host/join attempts
     try { if (S.net) S.net.close(); } catch (e) {}
-    S.net = null; S.netRole = null; S.netPeers = []; S.camsLocked = false;
+    S.net = null; S.netRole = null; S.netPeers = []; S.camsLocked = false; S.myCorner = null;
     stopMonitorStream();
     closeQrScanner();
     if (S.arb && S.arb.timer) clearTimeout(S.arb.timer);
@@ -815,6 +850,11 @@
       }
     }
     const n = S.netPeers.length + 1;
+    const want = expectedPhones();
+    const scanned = S.netPeers.filter(p => p.corner || p.pos).length + (S.H ? 1 : 0);
+    const lc = $('lobby-count');
+    if (lc) lc.textContent = 'Phones: ' + n + ' of ' + want + ' · Scanned: ' + scanned + ' of ' + want +
+      (S.matchFormat === 'singles' ? ' (singles)' : ' (doubles)');
     const sb = $('btn-lobby-start');
     if (sb) sb.textContent = '2 · Start match (' + n + ' phone' + (n === 1 ? '' : 's') + ')';
   }
@@ -834,6 +874,7 @@
         setLobbyStatus('Connection problem: ' + (e && e.message ? e.message : e)));
       if (mySeq !== (S.netSeq || 0)) { try { net.close(); } catch (e) {} return; } // user cancelled meanwhile
       S.net = net; S.netRole = 'host'; S.netPeers = []; S.camsLocked = false;
+    setFormat(S.matchFormat); // refresh the format buttons for the fresh lobby
       $('lobby-code').textContent = code;
       // QR join link: point another phone's camera at it and it opens this
       // app straight into the room. Zero dependencies — drawn on-device.
@@ -908,8 +949,14 @@
       S.net = net; S.netRole = 'joiner';
       net.onMessage(onNetMessage);
       net.onLeave(() => netHostGone());
-      setJoinStatus('Connected! Now scan the court from your spot.');
-      $('btn-join-scan').classList.remove('hidden');
+      setJoinStatus('Connected! Tap where this phone is, then scan the court.');
+      $('btn-join').classList.add('hidden');
+      $('btn-qr-scan').classList.add('hidden');
+      $('join-position').classList.remove('hidden');
+      const sc = $('btn-join-scan');
+      sc.classList.remove('hidden');
+      sc.disabled = !S.myCorner;
+      paintCorners();
     } catch (e) {
       // Surface the real reason. "Could not connect to peer" means the room
       // is gone on the server — the host phone left the Room code screen or
@@ -1031,9 +1078,9 @@
         const v = activeVideoEl();
         if (v && v.videoWidth) ctx.drawImage(v, 0, 0, 320, 180);
       } catch (e) {}
-    }, 250);
+    }, 400);
     try {
-      monStream = monCanvas.captureStream(8);
+      monStream = monCanvas.captureStream(5);
       S.net.joinerCallHost(monStream);
     } catch (e) { stopMonitorStream(); }
   }
@@ -1041,6 +1088,18 @@
   function stopMonitorStream() {
     if (monTimer) { clearInterval(monTimer); monTimer = 0; }
     if (monStream) { try { monStream.getTracks().forEach(t => t.stop()); } catch (e) {} monStream = null; }
+  }
+
+  /** Last ~10 ball positions in court feet, for the Hawk-Eye trail. */
+  function courtTrail() {
+    try {
+      const h = S.tracker.hist.slice(-10);
+      if (!h.length || !S.H) return null;
+      return h.map(p => {
+        const [X, Y] = applyHomography(S.H, p.x, p.y);
+        return [Math.round(X * 10) / 10, Math.round(Y * 10) / 10];
+      });
+    } catch (e) { return null; }
   }
 
   /** Where this phone stands, in court feet (from the scan homography). */
@@ -1057,13 +1116,32 @@
 
   function posLabel(p) {
     if (!p) return 'position unknown';
+    if (p.corner && CORNERS[p.corner]) return CORNERS[p.corner].label;
     if (p.y < -0.5) return 'behind N baseline';
     if (p.y > 44.5) return 'behind S baseline';
     if (p.x < -0.5 || p.x > 20.5) return 'sideline';
     return 'on the court';
   }
+  function posCoords(p) {
+    if (!p) return null;
+    if (p.corner && CORNERS[p.corner]) return CORNERS[p.corner];
+    if (isFinite(p.x) && isFinite(p.y)) return p;
+    return null;
+  }
 
   const TILE_COLORS = ['#7CFC00', '#ffd24d', '#6ec6ff'];
+
+  // Joiner-declared court corners (2x2 grid mirroring the position diagram).
+  const CORNERS = {
+    TL: { x: 2, y: -3, label: 'Top Left' },
+    TR: { x: 18, y: -3, label: 'Top Right' },
+    BL: { x: 2, y: 47, label: 'Bottom Left' },
+    BR: { x: 18, y: 47, label: 'Bottom Right' },
+  };
+  function cornerQuadrant(p) {
+    if (!p) return null;
+    return (p.y < 22 ? 'T' : 'B') + (p.x < 10 ? 'L' : 'R');
+  }
 
   function renderCamWall() {
     if (S.netRole !== 'host' || !$('cam-tiles')) return;
@@ -1091,7 +1169,7 @@
       const lab = document.createElement('span');
       lab.className = 'cam-label';
       lab.style.borderColor = TILE_COLORS[i % TILE_COLORS.length];
-      lab.textContent = p.name + ' · ' + posLabel(p.pos) + (p.stream ? '' : ' (no video yet)');
+      lab.textContent = p.name + ' · ' + posLabel(p.corner ? { corner: p.corner } : p.pos) + (p.stream ? '' : ' (no video yet)');
       d.appendChild(v); d.appendChild(lab);
       wall.appendChild(d);
     });
@@ -1117,7 +1195,8 @@
     const selfPos = cameraCourtPos();
     if (selfPos) s += dot(selfPos.x, selfPos.y, '#ffffff', 'me');
     S.netPeers.forEach((p, i) => {
-      if (p.pos) s += dot(p.pos.x, p.pos.y, TILE_COLORS[i % TILE_COLORS.length], String(p.name).slice(0, 8));
+      const c = posCoords(p.pos || (p.corner ? { corner: p.corner } : null));
+      if (c) s += dot(c.x, c.y, TILE_COLORS[i % TILE_COLORS.length], String(p.name).slice(0, 8));
     });
     svg.innerHTML = s;
   }
@@ -1142,6 +1221,35 @@
         : needLock ? 'Check each camera feed above, then lock in to enable Start.'
         : (S.netPeers.length ? 'All set — start the match when ready.' : '');
     }
+  }
+
+  function paintCorners() {
+    document.querySelectorAll('#join-position .corner').forEach(b => {
+      b.classList.toggle('active', b.dataset.corner === S.myCorner);
+    });
+  }
+
+  function pickCorner(corner) {
+    if (!CORNERS[corner]) return;
+    S.myCorner = corner;
+    paintCorners();
+    $('btn-join-scan').disabled = false;
+    if (S.net) { try { S.net.send({ t: 'corner', corner: corner }); } catch (e) {} }
+    setJoinStatus('You\u2019re at ' + CORNERS[corner].label + ' — now scan the court from there.');
+  }
+
+  function expectedPhones() { return S.matchFormat === 'singles' ? 2 : 4; }
+
+  function setFormat(f) {
+    if (f !== 'singles' && f !== 'doubles') return;
+    S.matchFormat = f;
+    S.scorePrefs.mode = f; // the match score follows the format
+    saveScore();
+    renderScoreboard();
+    $('btn-fmt-singles').classList.toggle('active', f === 'singles');
+    $('btn-fmt-doubles').classList.toggle('active', f === 'doubles');
+    renderLobbyPeers();
+    updateStartButton();
   }
 
   function lockCameras() {
@@ -1266,12 +1374,17 @@
     });
     $('btn-join').addEventListener('click', joinMatch);
     $('btn-qr-scan').addEventListener('click', openQrScanner);
+    document.querySelectorAll('#join-position .corner').forEach(b => {
+      b.addEventListener('click', () => pickCorner(b.dataset.corner));
+    });
     $('btn-qr-cancel').addEventListener('click', () => { closeQrScanner(); showLobby('join'); });
     $('btn-join-scan').addEventListener('click', () => { S.netDead = false; startScanFlow(); });
     $('btn-lobby-back2').addEventListener('click', () => { netClose(); showLobby('choose'); });
     $('btn-host-scan').addEventListener('click', () => { S.netDead = false; startScanFlow(); });
     $('btn-lobby-start').addEventListener('click', hostStartMatch);
     $('btn-lock-cams').addEventListener('click', lockCameras);
+    $('btn-fmt-singles').addEventListener('click', () => setFormat('singles'));
+    $('btn-fmt-doubles').addEventListener('click', () => setFormat('doubles'));
     $('btn-lobby-cancel').addEventListener('click', () => { netClose(); showScreen('home'); });
     $('btn-lobby-leave').addEventListener('click', () => { netClose(); showScreen('home'); });
     $('btn-net-home').addEventListener('click', goHome);

@@ -175,3 +175,40 @@ button.big.armed { background: #7a2e12; border-color: #a34a1f; }
 }
 .field.check span { display: flex; align-items: center; gap: 10px; }
 .field input[type="checkbox"] { width: 24px; height: 24px; }
+
+/* Joiner corner picker: 2x2 grid mirroring the court diagram. */
+.corner-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.corner {
+  padding: 18px 8px; font-size: 16px; border-radius: 12px;
+  border: 2px solid #2a3a5f; background: #16213c; color: #fff; cursor: pointer;
+}
+.corner.active { border-color: #7CFC00; background: #1d3b2a; }
+
+/* Host Hawk-Eye view: the judge screen becomes one big court picture.
+   The host's camera keeps tracking with its video element hidden. */
+#screen-judge.host-view .stage { display: none; }
+#screen-judge.host-view .judge-grid { display: block; }
+#screen-judge.host-view #mini-court {
+  width: 100%; max-width: 430px; height: auto; margin: 0 auto; display: block;
+}
+#screen-judge.host-view .judge-side {
+  display: flex; gap: 10px; align-items: center; justify-content: center; margin-top: 10px;
+}
+#screen-judge.host-view #judge-status { margin: 0; }
+/* Pulsing landing dot on the court diagram. */
+.landing-pulse {
+  transform-box: fill-box; transform-origin: center;
+  animation: landing-ping 1.1s ease-out infinite;
+}
+@keyframes landing-ping {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.7); opacity: 0.65; }
+  100% { transform: scale(1); opacity: 1; }
+}
+/* Segmented Singles/Doubles picker. */
+.seg-row { display: flex; gap: 8px; margin: 6px 0; }
+.seg {
+  flex: 1; padding: 12px; font-size: 16px; border-radius: 12px;
+  border: 2px solid #2a3a5f; background: #16213c; color: #fff; cursor: pointer;
+}
+.seg.active { border-color: #7CFC00; background: #1d3b2a; }

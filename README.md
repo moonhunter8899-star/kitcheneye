@@ -135,14 +135,25 @@ node --check js/score.js && node /tmp/test-score.js          # scoring
   dependency-free encoder (`js/qr.js`, byte mode, ECC-L) — no network call,
   works offline. Game messages are tiny JSON; the only video that travels
   is the low-res director-wall monitor feed (below).
-- **Director wall**: while setting up, each joiner publishes a tiny monitor
-  feed (320×180 @ ~8 fps via canvas `captureStream`, bitrate-capped) to the
-  host, plus its court position (computed from its scan homography). The
-  host lobby shows a 2×2 camera wall — its own camera plus every joiner —
-  and a mini court diagram with a dot per phone, so the host can direct
-  each phone to its mark. The host taps **Cameras look good — lock in**,
-  which enables **Start match** (any phone joining, leaving, or re-scanning
-  unlocks it again for re-confirmation).
+- **Director wall**: while setting up, each joiner taps the corner it's
+  standing at (Top/Bottom × Left/Right — required before scanning) and
+  publishes a tiny monitor feed (320×180 @ 5 fps via canvas `captureStream`,
+  bitrate-capped) to the host. The host lobby shows a 2×2 camera wall — its
+  own camera plus every joiner — and a mini court diagram with a dot per
+  phone at its declared corner, so the host can direct each phone to its
+  mark. (The scan also cross-checks: if the computed position disagrees
+  with the tapped corner, the joiner gets a warning.) The host taps
+  **Cameras look good — lock in**, which enables **Start match** (any phone
+  joining, leaving, or re-scanning unlocks it again for re-confirmation).
+  The monitor feed stops when the match starts — it was setup-only.
+- **Match format**: the host picks **Singles** (2 phones) or **Doubles**
+  (4 phones); the lobby tracks phones present vs. expected and the score
+  follows the format.
+- **Host Hawk-Eye view**: on the host's judge screen the camera is replaced
+  by one big court picture — each call draws the ball's trail plus a
+  pulsing landing dot and the IN/OUT banner (the trail rides along in the
+  bounce report, ~10 court-coordinate points). The host's camera keeps
+  tracking with its video element hidden. Joiners keep their camera view.
 - **Flow**: every phone scans the court from its own position (auto or
   manual taps — the kitchen/centerline template match disambiguates each
   phone's orientation, so all share one court coordinate frame), picks the
