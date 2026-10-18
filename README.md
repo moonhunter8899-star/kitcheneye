@@ -28,6 +28,45 @@ TOO CLOSE. Host it on GitHub Pages — camera access needs HTTPS.
 - **NetSync** (`js/netsync.js`): deliberate stub. The v2 seam — message
   shapes are documented there, nothing is built.
 
+## Dispute replay
+
+Every line call is saved (in memory + localStorage, last 100) as a record:
+bounce court coords, inches to the line, which line, the call, timestamp.
+Tap any entry in **Call history** to open the replay view: a top-down SVG
+of the full 20×44 court with the bounce plotted as a color-coded dot
+(green IN, red OUT, amber TOO CLOSE), the judged line highlighted, and a
+plain-English caption — e.g. "3.2 in past the South baseline — OUT" or
+"Touching the West sideline — IN". A **Back to judging** button resumes the
+live point exactly where you left it (the judge loop pauses while replaying).
+
+## Scorekeeper
+
+- **Logic** (`js/score.js`): pure, DOM-free, unit-testable. Doubles uses the
+  real 3-number format — the game opens **0-0-2** (first serving team starts
+  on server 2), server 1 → server 2 on a lost rally, side-out after server 2
+  loses, points only for the serving team. Singles: 2-number score, one
+  serve, side-out on a lost rally. Serving side follows score parity (even
+  score serves from the right court). First to the target (default 11),
+  win by 2.
+- **Flow**: tap the arm button when the point ends → two big buttons
+  ("Us won" / "Them won", team names editable) → score updates, the
+  scoreboard refreshes, tap "Start point" for the next. The scoreboard shows
+  e.g. **7 – 4 – 2** (serving team's score first) plus a serve line like
+  "Us serving · server 2 · right court". A game win shows a banner with the
+  final score and a New game button.
+- **Settings**: match type (doubles/singles), points to win, team names,
+  optional spoken score announcements (Web Speech API, off by default), and
+  Reset score. Score and preferences persist in localStorage.
+
+## Testing the pure logic
+
+`js/call.js`, `js/score.js`, and `js/replay.js` export via `module.exports`
+when loaded in node, so they can be unit-tested without a browser:
+
+```sh
+node --check js/score.js && node /tmp/test-score.js
+```
+
 ## How to test on a real court
 
 1. Mount the phone ~6 ft behind the baseline, 8–10 ft high (fence clamp),
@@ -78,6 +117,8 @@ TOO CLOSE. Host it on GitHub Pages — camera access needs HTTPS.
 | `index.html` | Screens: Home → Camera/Scan → Calibrate → Judge |
 | `styles.css` | Dark phone-first theme |
 | `js/call.js` | Pure line-call logic (testable in node) |
+| `js/replay.js` | Dispute-replay SVG + captions (testable in node) |
+| `js/score.js` | Pure pickleball scoring logic (testable in node) |
 | `js/scan.js` | Hough court detection + homography + persistence |
 | `js/track.js` | HSV ball tracking + bounce detection |
 | `js/netsync.js` | v2 stub (message shapes documented) |

@@ -25,11 +25,15 @@
     lastCallAt: 0,
     audio: null,
     manualTaps: [],
+    calls: [],              // dispute-replay records (persisted)
+    replayId: null,
+    score: null,            // Score instance (js/score.js)
+    scorePrefs: { mode: 'doubles', target: 11, teamUs: 'Us', teamThem: 'Them', speech: false },
   };
 
   function showScreen(name) {
     S.screen = name;
-    ['home', 'camera', 'calibrate', 'judge'].forEach(n => {
+    ['home', 'camera', 'calibrate', 'judge', 'replay'].forEach(n => {
       const el = $('screen-' + n);
       if (el) el.classList.toggle('hidden', n !== name);
     });
@@ -242,7 +246,9 @@
   function enterJudge() {
     showScreen('judge');
     S.armed = false;
+    hideWhoWon();
     updateArmUI();
+    renderScoreboard();
     drawMiniCourt(null);
     setStatus('judge-status', 'Tap "Start point", then serve. The phone calls each bounce.');
     if (!S.judging) { S.judging = true; requestAnimationFrame(judgeLoop); }
@@ -295,7 +301,22 @@
     S.netsync.sendBounce(cx, cy, b.t); // v2 seam: broadcast to other phones
     showCall(res, cx, cy);
     callSound(res.call);
-    addHistory(res, cx, cy);
+    // Dispute-replay record: everything the replay view needs.
+    const rec = {
+      id: 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36),
+      at: Date.now(),
+      x: Math.round(cx * 100) / 100,
+      y: Math.round(cy * 100) / 100,
+      distIn: Math.round(res.distIn * 10) / 10,
+      line: res.line,
+      call: res.call,
+      inside: res.inside,
+      marginIn: S.marginIn,
+    };
+    S.calls.unshift(rec);
+    if (S.calls.length > 100) S.calls.length = 100;
+    saveCalls();
+    renderHistory();
     S.lastCallAt = performance.now();
   }
 
@@ -331,24 +352,167 @@
       '<line x1="4" y1="150" x2="196" y2="150" stroke="#888" stroke-width="3"/>' + dots;
   }
 
-  function addHistory(res, cx, cy) {
+  // ---------- call history + dispute replay ----------
+  const CALLS_KEY = 'kitcheneye.calls.v1';
+
+  function saveCalls() {
+    try { localStorage.setItem(CALLS_KEY, JSON.stringify(S.calls)); }
+    catch (e) { /* storage blocked/full: history just won't persist */ }
+  }
+
+  function loadCalls() {
+    try {
+      const raw = localStorage.getItem(CALLS_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      S.calls = Array.isArray(arr) ? arr.filter(r => r && typeof r.x === 'number') : [];
+    } catch (e) { S.calls = []; }
+  }
+
+  function renderHistory() {
     const ul = $('call-history');
     if (!ul) return;
-    const li = document.createElement('li');
-    const t = new Date();
-    li.className = 'hist-' + res.call.toLowerCase().replace(' ', '-');
-    li.textContent = t.toLocaleTimeString() + ' — ' + res.call + ' · ' + res.line +
-      ' · (' + cx.toFixed(1) + ', ' + cy.toFixed(1) + ' ft)';
-    ul.prepend(li);
-    while (ul.children.length > 30) ul.removeChild(ul.lastChild);
+    ul.innerHTML = '';
+    for (const rec of S.calls.slice(0, 30)) {
+      const li = document.createElement('li');
+      li.className = 'hist-' + rec.call.toLowerCase().replace(' ', '-');
+      const b = document.createElement('button');
+      b.className = 'hist-btn';
+      b.type = 'button';
+      b.textContent = new Date(rec.at).toLocaleTimeString() + ' — ' + rec.call + ' · ' +
+        rec.line + ' · (' + rec.x.toFixed(1) + ', ' + rec.y.toFixed(1) + ' ft) · tap to replay';
+      b.addEventListener('click', () => openReplay(rec.id));
+      li.appendChild(b);
+      ul.appendChild(li);
+    }
+  }
+
+  function openReplay(id) {
+    const rec = S.calls.find(r => r.id === id);
+    if (!rec) return;
+    S.replayId = id;
+    const cap = $('replay-caption');
+    cap.textContent = replayCaption(rec); // js/replay.js
+    cap.className = 'replay-caption cap-' + rec.call.toLowerCase().replace(' ', '-');
+    $('replay-court').innerHTML = replaySVG(rec);
+    $('replay-time').textContent = new Date(rec.at).toLocaleString();
+    showScreen('replay'); // judgeLoop pauses itself when screen !== 'judge'
+  }
+
+  function resumeJudge() {
+    showScreen('judge');
+    if (!S.judging) { S.judging = true; requestAnimationFrame(judgeLoop); }
+  }
+
+  // ---------- scorekeeper ----------
+  const SCORE_KEY = 'kitcheneye.score.v1';
+  const SCORE_PREFS_KEY = 'kitcheneye.scoreprefs.v1';
+
+  function teamName(key) {
+    const raw = key === 'us' ? S.scorePrefs.teamUs : S.scorePrefs.teamThem;
+    const fb = key === 'us' ? 'Us' : 'Them';
+    return (typeof raw === 'string' && raw.trim() ? raw.trim() : fb).slice(0, 24);
+  }
+
+  function newScore() {
+    S.score = new Score({ mode: S.scorePrefs.mode, target: S.scorePrefs.target });
+    saveScore();
+    renderScoreboard();
+  }
+
+  function saveScore() {
+    try {
+      localStorage.setItem(SCORE_KEY, JSON.stringify(S.score.state()));
+      localStorage.setItem(SCORE_PREFS_KEY, JSON.stringify(S.scorePrefs));
+    } catch (e) { /* storage blocked: score just won't persist */ }
+  }
+
+  function loadScore() {
+    try {
+      const p = JSON.parse(localStorage.getItem(SCORE_PREFS_KEY) || 'null');
+      if (p && typeof p === 'object') {
+        if (p.mode === 'singles' || p.mode === 'doubles') S.scorePrefs.mode = p.mode;
+        if (Number.isFinite(+p.target)) S.scorePrefs.target = Math.max(1, Math.min(30, Math.round(+p.target)));
+        if (typeof p.teamUs === 'string' && p.teamUs.trim()) S.scorePrefs.teamUs = p.teamUs.slice(0, 24);
+        if (typeof p.teamThem === 'string' && p.teamThem.trim()) S.scorePrefs.teamThem = p.teamThem.slice(0, 24);
+        S.scorePrefs.speech = !!p.speech;
+      }
+    } catch (e) { /* keep defaults */ }
+    try {
+      const st = JSON.parse(localStorage.getItem(SCORE_KEY) || 'null');
+      S.score = st ? Score.fromState(st) : null;
+      if (!S.score || S.score.mode !== S.scorePrefs.mode || S.score.target !== S.scorePrefs.target) {
+        S.score = new Score({ mode: S.scorePrefs.mode, target: S.scorePrefs.target });
+      }
+    } catch (e) {
+      S.score = new Score({ mode: S.scorePrefs.mode, target: S.scorePrefs.target });
+    }
+  }
+
+  function renderScoreboard() {
+    const main = $('score-main'), sub = $('score-sub');
+    if (!main || !sub || !S.score) return;
+    main.textContent = S.score.scoreText();
+    if (S.score.over) {
+      sub.textContent = teamName(S.score.winner) + ' wins the game';
+    } else {
+      const side = S.score.servingSide() === 'even' ? 'right' : 'left';
+      let line = teamName(S.score.serving) + ' serving · ' + side + ' court';
+      if (S.score.mode === 'doubles') {
+        line = teamName(S.score.serving) + ' serving · server ' + S.score.server + ' · ' + side + ' court';
+      }
+      sub.textContent = line;
+    }
+    const bu = $('btn-us-won'), bt = $('btn-them-won');
+    if (bu) bu.textContent = teamName('us') + ' won';
+    if (bt) bt.textContent = teamName('them') + ' won';
+  }
+
+  function speak(text) {
+    if (!S.scorePrefs.speech) return;
+    try {
+      const synth = window.speechSynthesis;
+      if (!synth) return;
+      synth.cancel();
+      synth.speak(new SpeechSynthesisUtterance(text));
+    } catch (e) { /* speech unavailable */ }
+  }
+
+  function showWhoWon() { $('who-won').classList.remove('hidden'); }
+  function hideWhoWon() { $('who-won').classList.add('hidden'); }
+
+  function recordPoint(teamKey) {
+    if (!S.score || S.score.over) return;
+    const ev = S.score.rallyWon(teamKey);
+    saveScore();
+    renderScoreboard();
+    hideWhoWon();
+    if (ev.type === 'game-over') {
+      $('gameover-text').textContent = teamName(ev.winner) + ' wins the game — ' + ev.scoreText;
+      $('game-over').classList.remove('hidden');
+      setStatus('judge-status', 'Game over. Start a new game to play again.');
+      speak('Game over. ' + teamName(ev.winner) + ' wins.');
+    } else {
+      const notes = {
+        'point': teamName(ev.team) + ' scores.',
+        'second-serve': 'Second serve.',
+        'side-out': 'Side out — ' + teamName(ev.nowServing) + ' to serve.',
+      };
+      setStatus('judge-status', (notes[ev.type] || '') + ' Tap "Start point" for the next.');
+      speak(ev.scoreText);
+    }
+    updateArmUI();
   }
 
   function updateArmUI() {
     const b = $('btn-arm');
-    if (b) {
-      b.textContent = S.armed ? 'Point live — tap for next point' : 'Start point';
-      b.classList.toggle('armed', S.armed);
+    if (!b) return;
+    if (S.score && S.score.over) {
+      b.textContent = 'Game over';
+      b.classList.remove('armed');
+      return;
     }
+    b.textContent = S.armed ? 'Point live — tap when point ends' : 'Start point';
+    b.classList.toggle('armed', S.armed);
   }
 
   function setStatus(id, msg) {
@@ -365,6 +529,9 @@
     S.pctx = S.proc.getContext('2d', { willReadFrequently: true });
     S.tracker = new BallTracker();
     S.netsync = new NetSync();
+    loadCalls();
+    renderHistory();
+    loadScore();
 
     window.addEventListener('resize', () => { if (S.video && S.video.videoWidth) sizeOverlay(); });
     S.overlay.addEventListener('click', onOverlayTap);
@@ -413,14 +580,69 @@
 
     $('btn-start-judge').addEventListener('click', enterJudge);
 
+    // dispute replay + scorekeeper wiring
+    $('btn-replay-back').addEventListener('click', resumeJudge);
+    $('btn-us-won').addEventListener('click', () => recordPoint('us'));
+    $('btn-them-won').addEventListener('click', () => recordPoint('them'));
+    $('btn-new-game').addEventListener('click', () => {
+      $('game-over').classList.add('hidden');
+      newScore();
+      setStatus('judge-status', 'New game. Tap "Start point".');
+      updateArmUI();
+    });
+    $('btn-reset-score').addEventListener('click', () => {
+      $('game-over').classList.add('hidden');
+      newScore();
+      setStatus('judge-status', 'Score reset.');
+      updateArmUI();
+    });
+    $('score-mode').addEventListener('change', (e) => {
+      S.scorePrefs.mode = e.target.value === 'singles' ? 'singles' : 'doubles';
+      $('game-over').classList.add('hidden');
+      newScore();
+      updateArmUI();
+    });
+    $('score-target').addEventListener('change', (e) => {
+      const t = Math.max(1, Math.min(30, Math.round(+e.target.value || 11)));
+      e.target.value = t;
+      S.scorePrefs.target = t;
+      $('game-over').classList.add('hidden');
+      newScore();
+      updateArmUI();
+    });
+    $('team-us').addEventListener('input', (e) => {
+      S.scorePrefs.teamUs = e.target.value.slice(0, 24);
+      saveScore(); renderScoreboard();
+    });
+    $('team-them').addEventListener('input', (e) => {
+      S.scorePrefs.teamThem = e.target.value.slice(0, 24);
+      saveScore(); renderScoreboard();
+    });
+    $('speak-score').addEventListener('change', (e) => {
+      S.scorePrefs.speech = e.target.checked;
+      saveScore();
+    });
+    // reflect loaded prefs in the settings UI
+    $('score-mode').value = S.scorePrefs.mode;
+    $('score-target').value = S.scorePrefs.target;
+    $('team-us').value = S.scorePrefs.teamUs;
+    $('team-them').value = S.scorePrefs.teamThem;
+    $('speak-score').checked = S.scorePrefs.speech;
+    renderScoreboard();
+
     $('btn-arm').addEventListener('click', () => {
-      S.armed = !S.armed;
-      if (S.armed) {
+      if (S.score && S.score.over) return; // game over: start a new game first
+      if (!S.armed) {
+        S.armed = true;
         S.tracker.reset();
+        hideWhoWon();
         $('call-banner').classList.remove('show');
         setStatus('judge-status', 'Live. Serve when ready.');
       } else {
-        setStatus('judge-status', 'Paused. Tap "Start point" to resume.');
+        // Rally over -> ask who won, then score it.
+        S.armed = false;
+        showWhoWon();
+        setStatus('judge-status', 'Point over — who won it?');
       }
       updateArmUI();
     });

@@ -84,3 +84,41 @@ button.big.armed { background: #7a2e12; border-color: #a34a1f; }
 .history li.hist-in { border-left-color: var(--accent); }
 .history li.hist-out { border-left-color: var(--bad); }
 .history li.hist-too-close { border-left-color: var(--warn); }
+.history button.hist-btn {
+  all: unset; display: block; width: 100%; cursor: pointer; font-size: 14px; line-height: 1.4;
+}
+.history button.hist-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* scoreboard */
+.scoreboard {
+  text-align: center; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 10px; margin-bottom: 12px;
+}
+#score-main { font-size: 40px; font-weight: 800; letter-spacing: 2px; }
+#score-sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+#who-won { margin: 12px 0; }
+.who-label { text-align: center; font-size: 17px; font-weight: 600; margin: 0 0 8px; }
+#game-over {
+  text-align: center; background: var(--surface); border: 2px solid var(--accent);
+  border-radius: 12px; padding: 16px; margin: 12px 0;
+}
+.gameover-text { font-size: 22px; font-weight: 700; margin: 0 0 12px; }
+
+/* replay */
+.replay-caption { font-size: 19px; font-weight: 700; text-align: center; margin: 6px 0; line-height: 1.4; }
+.replay-caption.cap-in { color: var(--accent); }
+.replay-caption.cap-out { color: var(--bad); }
+.replay-caption.cap-too-close { color: var(--warn); }
+#replay-court { width: 100%; max-width: 300px; margin: 0 auto; display: block; border-radius: 10px; border: 1px solid var(--border); }
+
+/* settings additions */
+.field select {
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  border-radius: 10px; padding: 14px; font-size: 17px;
+}
+.field input[type="number"] {
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  border-radius: 10px; padding: 14px; font-size: 17px; width: 100%;
+}
+.field.check span { display: flex; align-items: center; gap: 10px; }
+.field input[type="checkbox"] { width: 24px; height: 24px; }

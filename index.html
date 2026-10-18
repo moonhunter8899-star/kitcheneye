@@ -61,6 +61,21 @@
 
 <!-- ============ JUDGE ============ -->
 <section id="screen-judge" class="screen hidden">
+  <div class="scoreboard">
+    <div id="score-main">0 – 0 – 2</div>
+    <div id="score-sub">Us serving · server 2</div>
+  </div>
+  <div id="who-won" class="hidden">
+    <p class="who-label">Who won the point?</p>
+    <div class="row">
+      <button id="btn-us-won" type="button" class="big primary">Us won</button>
+      <button id="btn-them-won" type="button" class="big primary">Them won</button>
+    </div>
+  </div>
+  <div id="game-over" class="hidden">
+    <p id="gameover-text" class="gameover-text"></p>
+    <button id="btn-new-game" type="button" class="big primary">New game</button>
+  </div>
   <div id="call-banner" class="banner"></div>
   <p id="call-detail" class="detail"></p>
   <div class="judge-grid">
@@ -76,20 +91,50 @@
       <span>Too-close margin: <b id="margin-val">4 in</b></span>
       <input id="margin" type="range" min="2" max="8" step="1" value="4">
     </label>
+    <label class="field">
+      <span>Match type</span>
+      <select id="score-mode">
+        <option value="doubles" selected>Doubles (3-number score)</option>
+        <option value="singles">Singles (2-number score)</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Points to win (win by 2)</span>
+      <input id="score-target" type="number" min="1" max="30" value="11">
+    </label>
     <div class="row">
+      <label class="field"><span>Your team</span><input id="team-us" type="text" value="Us" maxlength="24"></label>
+      <label class="field"><span>Opponents</span><input id="team-them" type="text" value="Them" maxlength="24"></label>
+    </div>
+    <label class="field check"><span><input id="speak-score" type="checkbox"> Announce score aloud</span></label>
+    <div class="row">
+      <button id="btn-reset-score" class="big">Reset score</button>
       <button id="btn-recal-ball" class="big">Re-tap ball color</button>
       <button id="btn-rescan" class="big">Rescan court</button>
       <button id="btn-home" class="big">Home</button>
     </div>
   </details>
-  <h3>Call history</h3>
+  <h3>Call history — tap a call to replay it</h3>
   <ul id="call-history" class="history"></ul>
+</section>
+
+<!-- ============ REPLAY ============ -->
+<section id="screen-replay" class="screen hidden">
+  <div class="wrap">
+    <h2>Call replay</h2>
+    <p id="replay-caption" class="replay-caption"></p>
+    <svg id="replay-court" viewBox="0 0 220 460" aria-label="Top-down court with bounce point"></svg>
+    <p id="replay-time" class="detail"></p>
+    <button id="btn-replay-back" class="big primary">Back to judging</button>
+  </div>
 </section>
 
 <script src="js/call.js"></script>
 <script src="js/scan.js"></script>
 <script src="js/track.js"></script>
 <script src="js/netsync.js"></script>
+<script src="js/replay.js"></script>
+<script src="js/score.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
