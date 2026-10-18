@@ -107,8 +107,7 @@
         return false;
       }
       sizeOverlay();
-      if (S.netRole === 'joiner') startMonitorStream();
-      if (S.netRole === 'host') renderCamWall();
+      if (S.netRole === 'host') renderLobby();
       return true;
     } catch (e) {
       console.warn('camera failed', e);
@@ -202,11 +201,10 @@
     // v2: tell the host where this phone stands (director wall), and make
     // sure the monitor feed is up.
     if (S.netRole === 'joiner' && S.net) {
-      startMonitorStream();
       const p = cameraCourtPos();
       if (p) { try { S.net.send({ t: 'campos', x: +p.x.toFixed(1), y: +p.y.toFixed(1) }); } catch (e) {} }
     }
-    if (S.netRole === 'host') renderCamWall();
+    if (S.netRole === 'host') renderLobby();
     // Cross-check: does the scan agree with the tapped corner/half?
     let cornerWarn = null;
     if (S.netRole === 'joiner' && S.myCorner) {
@@ -222,6 +220,12 @@
           ' — if the court looks wrong, rescan.';
       }
     }
+    proceedAfterScan(cornerWarn);
+  }
+
+  // Single routing point after any scan path (auto, manual taps, resume):
+  // joiners go camera-only, everyone else to ball calibration.
+  function proceedAfterScan(cornerWarn) {
     if (S.netRole === 'joiner') {
       // Join phones are done: position picked, court scanned. The host does
       // ball color, arming, and scoring — we just track and report.
@@ -780,13 +784,13 @@
       try {
         S.net.broadcast({ t: 'taken', corners: S.netPeers.map(x => x.corner).filter(Boolean) });
       } catch (e) {}
-      renderCamWall();
+      renderLobby();
     } else if (msg.t === 'campos') {
       // Director wall: a phone reports where it stands (court feet).
       const p = S.netPeers.find(x => x.id === peerId);
       if (p && isFinite(+msg.x) && isFinite(+msg.y)) p.pos = { x: +msg.x, y: +msg.y };
       S.camsLocked = false; // positions changed -> host re-confirms
-      renderCamWall();
+      renderLobby();
     }
   }
 
@@ -836,7 +840,6 @@
       }
       updateArmUI();
     } else if (msg.t === 'start') {
-      stopMonitorStream(); // director wall was setup-only; save bandwidth now
       if (S.screen === 'lobby') {
         enterJudge();
         setStatus('judge-status', 'Connected to host — tap "Start point", then serve.');
@@ -895,7 +898,6 @@
     S.netSeq = (S.netSeq || 0) + 1; // invalidates in-flight host/join attempts
     try { if (S.net) S.net.close(); } catch (e) {}
     S.net = null; S.netRole = null; S.netPeers = []; S.camsLocked = false; S.myCorner = null;
-    stopMonitorStream();
     closeQrScanner();
     if (S.arb && S.arb.timer) clearTimeout(S.arb.timer);
     S.arb = null; S.pendingStart = false;
@@ -929,7 +931,7 @@
     if (lc) lc.textContent = 'Phones: ' + n + ' of ' + want + ' · Scanned: ' + scanned + ' of ' + want +
       (S.matchFormat === 'singles' ? ' (singles)' : ' (doubles)');
     const sb = $('btn-lobby-start');
-    if (sb) sb.textContent = '2 · Start match (' + n + ' phone' + (n === 1 ? '' : 's') + ')';
+    if (sb) sb.textContent = '3 · Start match (' + n + ' phone' + (n === 1 ? '' : 's') + ')';
   }
 
   async function hostMatch() {
@@ -965,25 +967,15 @@
         if (!S.netPeers.some(p => p.id === id)) S.netPeers.push({ id: id, name: name });
         S.camsLocked = false; // new phone -> host re-confirms the wall
         renderLobbyPeers();
-        renderCamWall();
+        renderLobby();
       });
       net.onLeave((id) => {
         S.netPeers = S.netPeers.filter(p => p.id !== id);
         S.camsLocked = false;
         renderLobbyPeers();
-        renderCamWall();
+        renderLobby();
       });
       net.onHostMessage(onHostMessage);
-      net.onVideo((id, stream) => {
-        const p = S.netPeers.find(x => x.id === id);
-        if (p) p.stream = stream;
-        renderCamWall();
-      });
-      net.onVideoEnd((id) => {
-        const p = S.netPeers.find(x => x.id === id);
-        if (p) p.stream = null;
-        renderCamWall();
-      });
       net.onServer((up) => {
         if (S.net !== net || S.netRole !== 'host') return;
         // The room only exists while the host holds its server link —
@@ -993,7 +985,7 @@
           : 'Lost the match server — reconnecting… keep this screen open and the phone awake.');
       });
       renderLobbyPeers();
-      renderCamWall();
+      renderLobby();
       setLobbyStatus('Waiting for phones…');
     } catch (e) {
       setLobbyStatus('Could not create the room. Check your internet and try again.');
@@ -1131,35 +1123,11 @@
   // Joiners publish a tiny monitor feed (320x180 @ ~8fps via canvas
   // captureStream) to the host. The host lobby shows a 2x2 wall plus a mini
   // court diagram with each phone's position, then locks in before Start.
-  let monTimer = 0;
-  const monCanvas = document.createElement('canvas');
-  let monStream = null;
 
   function activeVideoEl() {
     const jv = $('judge-video');
     if (jv && !jv.paused && jv.videoWidth) return jv;
     return S.video;
-  }
-
-  function startMonitorStream() {
-    if (S.netRole !== 'joiner' || !S.net || monTimer) return;
-    monCanvas.width = 320; monCanvas.height = 180;
-    const ctx = monCanvas.getContext('2d');
-    monTimer = setInterval(() => {
-      try {
-        const v = activeVideoEl();
-        if (v && v.videoWidth) ctx.drawImage(v, 0, 0, 320, 180);
-      } catch (e) {}
-    }, 400);
-    try {
-      monStream = monCanvas.captureStream(5);
-      S.net.joinerCallHost(monStream);
-    } catch (e) { stopMonitorStream(); }
-  }
-
-  function stopMonitorStream() {
-    if (monTimer) { clearInterval(monTimer); monTimer = 0; }
-    if (monStream) { try { monStream.getTracks().forEach(t => t.stop()); } catch (e) {} monStream = null; }
   }
 
   /** Last ~10 ball positions in court feet, for the Hawk-Eye trail. */
@@ -1218,68 +1186,43 @@
     return (p.y < 22 ? 'T' : 'B') + (p.x < 10 ? 'L' : 'R');
   }
 
-  function renderCamWall() {
-    if (S.netRole !== 'host' || !$('cam-tiles')) return;
-    // Self tile: the host's own camera.
-    const selfV = $('tile-self-video');
-    if (selfV) {
-      if (S.stream && selfV.srcObject !== S.stream) {
-        try { selfV.srcObject = S.stream; selfV.play(); } catch (e) {}
-      } else if (!S.stream) { selfV.srcObject = null; }
-    }
-    const selfPos = cameraCourtPos();
-    $('tile-self-label').textContent = 'This phone' + (selfPos ? ' · ' + posLabel(selfPos) : '');
-    // Peer tiles.
-    const wall = $('cam-tiles');
-    wall.innerHTML = '';
-    S.netPeers.forEach((p, i) => {
-      const d = document.createElement('div');
-      d.className = 'cam-tile';
-      const v = document.createElement('video');
-      v.muted = true; v.playsInline = true; v.autoplay = true;
-      if (p.stream) {
-        v.srcObject = p.stream;
-        try { v.play(); } catch (e) {}
-      }
-      const lab = document.createElement('span');
-      lab.className = 'cam-label';
-      lab.style.borderColor = TILE_COLORS[i % TILE_COLORS.length];
-      lab.textContent = p.name + ' · ' + posLabel(p.corner ? { corner: p.corner } : p.pos) + (p.stream ? '' : ' (no video yet)');
-      d.appendChild(v); d.appendChild(lab);
-      wall.appendChild(d);
-    });
+  // Lobby refresh: the position diagram + start button. (The live video
+  // wall is gone — corner taps give the positions, no laggy streams.)
+  function renderLobby() {
+    if (S.netRole !== 'host') return;
     renderPosDiagram();
+    renderLobbyPeers();
     updateStartButton();
   }
 
   function renderPosDiagram() {
     const svg = $('pos-diagram');
     if (!svg) return;
-    const sx = x => 8 + (x / 20) * 84;
-    const sy = y => 8 + (y / 44) * 204;
-    let s = '<rect x="8" y="8" width="84" height="204" fill="none" stroke="#7CFC00" stroke-width="1.5"/>' +
-      '<line x1="8" y1="' + sy(15).toFixed(1) + '" x2="92" y2="' + sy(15).toFixed(1) + '" stroke="#7CFC00" stroke-width="1"/>' +
-      '<line x1="8" y1="' + sy(29).toFixed(1) + '" x2="92" y2="' + sy(29).toFixed(1) + '" stroke="#7CFC00" stroke-width="1"/>' +
-      '<line x1="50" y1="8" x2="50" y2="' + sy(22).toFixed(1) + '" stroke="#7CFC00" stroke-width="1"/>';
-    // Zone labels so the host can direct phones by name.
-    const lab = (x, y, t) => '<text x="' + x + '" y="' + y + '" fill="#9fb3d9" font-size="7" text-anchor="middle">' + t + '</text>';
+    // viewBox 0 0 140 224 — roomy enough for readable corner labels.
+    const sx = x => 20 + (x / 20) * 100;
+    const sy = y => 16 + (y / 44) * 192;
+    let s = '<rect x="20" y="16" width="100" height="192" fill="none" stroke="#7CFC00" stroke-width="1.5"/>' +
+      '<line x1="20" y1="' + sy(15).toFixed(1) + '" x2="120" y2="' + sy(15).toFixed(1) + '" stroke="#7CFC00" stroke-width="1"/>' +
+      '<line x1="20" y1="' + sy(29).toFixed(1) + '" x2="120" y2="' + sy(29).toFixed(1) + '" stroke="#7CFC00" stroke-width="1"/>' +
+      '<line x1="70" y1="16" x2="70" y2="' + sy(22).toFixed(1) + '" stroke="#7CFC00" stroke-width="1"/>';
+    // Corner/half labels — spaced so nothing overlaps.
+    const lab = (x, y, t) => '<text x="' + x + '" y="' + y + '" fill="#9fb3d9" font-size="9" text-anchor="middle">' + t + '</text>';
     if (S.matchFormat === 'singles') {
-      s += lab(50, 5, 'TOP HALF') + lab(50, 222, 'BOTTOM HALF');
+      s += lab(70, 10, 'TOP HALF') + lab(70, 221, 'BOTTOM HALF');
     } else {
-      s += lab(28, 5, 'TOP LEFT') + lab(72, 5, 'TOP RIGHT') +
-           lab(28, 222, 'BOTTOM LEFT') + lab(72, 222, 'BOTTOM RIGHT');
+      s += lab(45, 10, 'TOP LEFT') + lab(95, 10, 'TOP RIGHT') +
+           lab(45, 221, 'BOTTOM LEFT') + lab(95, 221, 'BOTTOM RIGHT');
     }
-    const dot = (x, y, color, label) => {
-      const cx = Math.max(5, Math.min(95, sx(x))).toFixed(1);
-      const cy = Math.max(5, Math.min(219, sy(y))).toFixed(1);
-      return '<circle cx="' + cx + '" cy="' + cy + '" r="5" fill="' + color + '"/>' +
-        '<text x="' + (+cx + 8) + '" y="' + (+cy + 4) + '" fill="#fff" font-size="9">' + label + '</text>';
+    const dot = (x, y, color) => {
+      const cx = Math.max(14, Math.min(126, sx(x))).toFixed(1);
+      const cy = Math.max(10, Math.min(214, sy(y))).toFixed(1);
+      return '<circle cx="' + cx + '" cy="' + cy + '" r="6" fill="' + color + '" stroke="#000" stroke-width="1"/>';
     };
     const selfPos = cameraCourtPos();
-    if (selfPos) s += dot(selfPos.x, selfPos.y, '#ffffff', 'me');
+    if (selfPos) s += dot(selfPos.x, selfPos.y, '#ffffff');
     S.netPeers.forEach((p, i) => {
       const c = posCoords(p.pos || (p.corner ? { corner: p.corner } : null));
-      if (c) s += dot(c.x, c.y, TILE_COLORS[i % TILE_COLORS.length], String(p.name).slice(0, 8));
+      if (c) s += dot(c.x, c.y, TILE_COLORS[i % TILE_COLORS.length]);
     });
     svg.innerHTML = s;
   }
@@ -1316,15 +1259,13 @@
     grid.innerHTML = '';
     grid.style.gridTemplateColumns = corners.length === 2 ? '1fr' : '1fr 1fr';
     corners.forEach(c => {
+      // Only show positions that are still available — taken ones vanish.
+      if (S.takenCorners.includes(c) && S.myCorner !== c) return;
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'corner' + (S.myCorner === c ? ' active' : '');
       b.dataset.corner = c;
       b.innerHTML = CORNERS[c].label.replace(' ', '<br>');
-      if (S.takenCorners.includes(c) && S.myCorner !== c) {
-        b.disabled = true;
-        b.innerHTML += '<br><small>taken</small>';
-      }
       b.addEventListener('click', () => pickCorner(c));
       grid.appendChild(b);
     });
@@ -1506,10 +1447,10 @@
     $('btn-manual').addEventListener('click', startManual);
     $('btn-manual-done').addEventListener('click', () => {
       $('scan-done-manual').classList.add('hidden');
-      enterCalibrate();
+      proceedAfterScan(null);
     });
     $('btn-resume-court').addEventListener('click', () => {
-      enterCalibrate();
+      proceedAfterScan(null);
     });
 
     $('btn-start-judge').addEventListener('click', () => {

@@ -129,18 +129,8 @@ button.big.armed { background: #7a2e12; border-color: #a34a1f; }
   display: block; width: 220px; height: 220px; margin: 10px auto;
   background: #fff; border-radius: 10px; image-rendering: pixelated;
 }
-/* Director wall: host sees every phone's camera (2x2 grid). */
-.cam-wall { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
-.cam-tiles { display: contents; }
-.cam-tile { position: relative; background: #0a0f1e; border-radius: 10px; overflow: hidden; aspect-ratio: 16/9; }
-.cam-tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
-.cam-label {
-  position: absolute; left: 6px; bottom: 6px; font-size: 12px; color: #fff;
-  background: rgba(0,0,0,0.55); padding: 2px 8px; border-radius: 8px;
-  border-left: 3px solid #fff;
-}
 .pos-row { display: flex; gap: 12px; align-items: center; margin: 8px 0; }
-.pos-diagram { width: 84px; height: 188px; flex: none; background: #0a0f1e; border-radius: 10px; }
+.pos-diagram { width: 150px; height: 240px; flex: none; background: #0a0f1e; border-radius: 10px; }
 .pos-row .sub { margin: 0; }
 /* QR scanner viewfinder: dim the video edges, cut a bright square window. */
 .qr-stage { position: relative; }

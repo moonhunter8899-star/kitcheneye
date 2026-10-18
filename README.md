@@ -156,11 +156,14 @@ node --check js/score.js && node /tmp/test-score.js          # scoring
   tracking with its video element hidden. Joiners keep their camera view.
 - **Flow**: joiners do the minimum — join, tap their corner (Top/Bottom
   × Left/Right; halves in singles, and a picked half locks for the other
-  phone), scan the court, done. They become silent tracking cameras: no
-  ball screen, no buttons. The host owns everything else — ball color
-  (broadcast to all cameras), arming ("Start point" arms every phone),
-  scoring, and the Hawk-Eye judge display. The host taps **Start match**
-  and all phones judge live.
+  phone), scan the court, done. Only untaken positions are shown. They
+  become silent tracking cameras: no ball screen, no buttons. The host
+  owns everything else — ball color (broadcast to all cameras), arming
+  ("Start point" arms every phone), scoring, and the Hawk-Eye judge
+  display. The host taps **Start match** and all phones judge live.
+- **Lobby**: the host sees a position diagram (labeled Top/Bottom
+  Left/Right, or Top/Bottom Half in singles) with a dot per phone — no
+  live video wall, so there's no streaming lag and joiner batteries last.
 - **Arbitration**: each bounce report carries `{x, y, at, size}` in court
   feet on the host clock (joiners sync via 5 ping/pong rounds, median
   offset). The host opens a 300 ms collection window on the first report,
