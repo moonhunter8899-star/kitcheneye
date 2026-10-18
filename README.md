@@ -1,8 +1,10 @@
-# KitchenEye v1 — phone line-judge for pickleball
+# KitchenEye — phone line-judge for pickleball
 
-A static web app (no build, no libraries, no server). One phone scans the
-court, learns the ball's color, tracks it, and calls bounces IN / OUT /
-TOO CLOSE. Host it on GitHub Pages — camera access needs HTTPS.
+A static web app (no build step, no npm). One phone scans the court, learns
+the ball's color, tracks it, and calls bounces IN / OUT / TOO CLOSE.
+**v2 adds multi-phone matches**: one phone hosts, up to three join by code,
+every phone scans from its own spot, and the closest phone's call wins.
+Host it on GitHub Pages — camera access needs HTTPS.
 
 ## What v1 does
 
@@ -60,11 +62,13 @@ live point exactly where you left it (the judge loop pauses while replaying).
 
 ## Testing the pure logic
 
-`js/call.js`, `js/score.js`, and `js/replay.js` export via `module.exports`
-when loaded in node, so they can be unit-tested without a browser:
+`js/call.js`, `js/score.js`, `js/replay.js`, and `js/netsync.js` export via
+`module.exports` when loaded in node, so they can be unit-tested without a
+browser:
 
 ```sh
-node --check js/score.js && node /tmp/test-score.js
+node --check js/netsync.js && node /tmp/test-pickwinner.js  # arbitration
+node --check js/score.js && node /tmp/test-score.js          # scoring
 ```
 
 ## How to test on a real court
@@ -81,6 +85,20 @@ node --check js/score.js && node /tmp/test-score.js
 5. Tap **Start point**, serve, play. Each bounce gets a banner + beep.
 6. Sanity check first: drop a ball on the line and 1 ft out — the calls
    should read IN / OUT.
+
+## How to test a 4-phone match
+
+1. Mount 4 phones: 2 behind each baseline, ~6 ft back, 8–10 ft high, each
+   ~5 ft off center (fence clamps beat tripods).
+2. Phone A: **Multi-phone match → Host a match** → shows a 6-character code.
+3. Phones B–D: **Multi-phone match → Join a match** → enter the code →
+   **Scan my court** each (auto or manual taps from their own spot) →
+   ball color → **Continue** → lobby shows "Waiting for host to start…".
+4. Phone A: **1 · Scan my court** → calibrate → **Continue** → back in the
+   lobby → **2 · Start match**. Fresh score, all phones judge live.
+5. Drop-test near each phone's lines: the nearest phone's call should be
+   the one every screen shows. Tap a history entry on any phone — the
+   replay diagram should match on all four.
 
 ## Honest accuracy limits (read before trusting it)
 
@@ -102,13 +120,58 @@ node --check js/score.js && node /tmp/test-score.js
 - **Occlusion.** A player's body between phone and bounce hides the ball;
   the track drops and no call is made (better than a wrong call).
 
-## v2 roadmap (not built)
+## v2 — multi-phone matches (built)
 
-- QR-code pairing: one phone hosts, three join over court WiFi.
-- WebRTC data channels exchange `{ type:'bounce', x, y, t }` — video never
-  leaves the phones.
-- Nearest-phone-wins arbitration; merged duplicates by time + position.
-- Optional: 2 net-post phones for kitchen-line / NVZ fault calls.
+- **Pairing** (`js/netsync.js`): one phone taps **Multi-phone match →
+  Host a match** and shows a 6-character code; the others tap **Join a
+  match** and enter it. Star topology over WebRTC data channels via PeerJS
+  (the single CDN dependency; if it can't load, the multi-phone buttons
+  hide and solo mode works untouched). Video never leaves the phones —
+  only tiny JSON messages travel.
+- **Flow**: every phone scans the court from its own position (auto or
+  manual taps — the kitchen/centerline template match disambiguates each
+  phone's orientation, so all share one court coordinate frame), picks the
+  ball color, then waits in the lobby. The host taps **Start match** and
+  all phones judge live.
+- **Arbitration**: each bounce report carries `{x, y, at, size}` in court
+  feet on the host clock (joiners sync via 5 ping/pong rounds, median
+  offset). The host opens a 300 ms collection window on the first report,
+  then `pickWinner()` takes the **largest ball `size`** — the closest phone
+  sees the biggest ball, hence the smallest error; ties break to the
+  earliest timestamp. The call is computed once and broadcast as
+  `{t:'call', rec}`; every phone renders, sounds, and stores it, so
+  dispute replay works identically on all four.
+- **Score**: the host owns the Score. Joiners see the same who-won prompt;
+  their taps send `{t:'who-won', team}` to the host, which scores and
+  broadcasts `{t:'score', state}`. Cross-phone double-taps for one point
+  are debounced (3 s) on the host.
+- **Disconnects**: a joiner leaving just drops off the host's list. If the
+  host leaves, joiners show "Host left — match over" with a Home button
+  and stop judging (no local guessing after a session dies).
+
+### v2 honest limits
+
+- **Internet once.** The PeerJS handshake needs internet; after that,
+  same-WiFi keeps latency lowest, but phones on different networks still
+  work through PeerJS's cloud relay.
+- **Orientation depends on the scan.** Each phone resolves its own court
+  orientation from the kitchen/centerline template match. If a phone's
+  auto-scan locks on mirrored (rare, and the "looks right?" confirm is
+  the guard), its calls mirror too — rescan if the replay diagram looks
+  flipped.
+- **Host is a single point of failure.** Host dies → match over.
+- **Size comparison assumes equal processing.** All phones run detection
+  at 480 px wide, so blob sizes are comparable. A phone with heavy
+  digital zoom would report inflated sizes — don't zoom.
+- **Not tested with 4 real phones yet.** Logic is unit-tested
+  (`pickWinner`, clock math shape, message routing), but the real proof
+  is a 4-phone court session.
+
+## Future ideas (not built)
+
+- 2 net-post phones for kitchen-line / NVZ fault calls.
+- Automatic scorekeeping: infer the rally winner from bounce patterns
+  (out-bounce on a side = that side wins) with a confirm/override prompt.
 
 ## Files
 
@@ -120,6 +183,6 @@ node --check js/score.js && node /tmp/test-score.js
 | `js/replay.js` | Dispute-replay SVG + captions (testable in node) |
 | `js/score.js` | Pure pickleball scoring logic (testable in node) |
 | `js/scan.js` | Hough court detection + homography + persistence |
-| `js/track.js` | HSV ball tracking + bounce detection |
-| `js/netsync.js` | v2 stub (message shapes documented) |
+| `js/track.js` | HSV ball tracking + bounce detection (reports ball `size`) |
+| `js/netsync.js` | v2 multi-phone sync: PeerJS host/join, clock sync, pickWinner |
 | `js/app.js` | State machine + camera + judge loop |

@@ -19,9 +19,55 @@
       <input id="court-name" type="text" value="home-court" autocomplete="off">
     </label>
     <button id="btn-setup" class="big primary">Set up camera</button>
+    <button id="btn-multi" class="big">Multi-phone match</button>
+    <p class="hint">Multi-phone: one phone hosts, up to three join by code, all judge together.</p>
     <p class="hint">Uses the rear camera. Video never leaves your phone. Needs HTTPS (or localhost) for camera access.</p>
     <p id="cam-error" class="error hidden"></p>
     <button id="btn-retry-cam" class="big hidden">Retry camera</button>
+  </div>
+</section>
+
+<!-- ============ MULTI-PHONE LOBBY ============ -->
+<section id="screen-lobby" class="screen hidden">
+  <div class="wrap">
+    <div id="lobby-choose">
+      <h2>Multi-phone match</h2>
+      <p class="sub">One phone hosts and shows a code; the others join it. Every phone scans the court from its own spot, then all judge together — the closest phone's call wins.</p>
+      <button id="btn-host" class="big primary" type="button">Host a match</button>
+      <button id="btn-show-join" class="big" type="button">Join a match</button>
+      <button id="btn-lobby-back" class="big" type="button">Back</button>
+    </div>
+    <div id="lobby-host" class="hidden">
+      <h2>Room code</h2>
+      <p id="lobby-code" class="room-code">······</p>
+      <p class="sub">Other phones: tap <b>Multi-phone match → Join a match</b> and enter this code.</p>
+      <h3>Phones in the match</h3>
+      <ul id="lobby-peers" class="peers"></ul>
+      <p id="lobby-status" class="status"></p>
+      <button id="btn-host-scan" class="big" type="button">1 · Scan my court</button>
+      <button id="btn-lobby-start" class="big primary" type="button">2 · Start match</button>
+      <button id="btn-lobby-cancel" class="big" type="button">Cancel</button>
+    </div>
+    <div id="lobby-join" class="hidden">
+      <h2>Join a match</h2>
+      <label class="field">
+        <span>Your phone's name</span>
+        <input id="join-name" type="text" value="Phone" maxlength="24" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>6-character room code</span>
+        <input id="join-code" type="text" maxlength="6" autocomplete="off" autocapitalize="characters" placeholder="ABC123">
+      </label>
+      <p id="lobby-join-status" class="status"></p>
+      <button id="btn-join" class="big primary" type="button">Join</button>
+      <button id="btn-join-scan" class="big primary hidden" type="button">Scan my court</button>
+      <button id="btn-lobby-back2" class="big" type="button">Back</button>
+    </div>
+    <div id="lobby-waiting" class="hidden">
+      <h2>Ready</h2>
+      <p id="lobby-waiting-status" class="status">Connected to host. Waiting for host to start…</p>
+      <button id="btn-lobby-leave" class="big" type="button">Leave</button>
+    </div>
   </div>
 </section>
 
@@ -89,6 +135,7 @@
     <svg id="mini-court" viewBox="0 0 200 300" aria-label="Top-down court with bounce point"></svg>
     <div class="judge-side">
       <button id="btn-arm" class="big primary">Start point</button>
+      <button id="btn-net-home" type="button" class="big hidden">Back to home</button>
       <p id="judge-status" class="status"></p>
     </div>
   </div>
@@ -139,6 +186,7 @@
 <script src="js/call.js"></script>
 <script src="js/scan.js"></script>
 <script src="js/track.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="js/netsync.js"></script>
 <script src="js/replay.js"></script>
 <script src="js/score.js"></script>

@@ -237,9 +237,10 @@ function assignments(quad) {
 
 /**
  * Full auto-scan. Returns { corners:[{x,y}x4] (detection-px), H, score, w, h }
- * or null when nothing convincing was found.
+ * or null when nothing convincing was found. minScore lets callers accept
+ * weaker matches on retry (the human confirm step stays the safety net).
  */
-function detectCourt(video, segments) {
+function detectCourt(video, segments, minScore) {
   const { canvas, ctx, w, h } = grabFrame(video);
   const img = ctx.getImageData(0, 0, w, h);
   const g = grayscale(img.data, w, h);
@@ -283,7 +284,7 @@ function detectCourt(video, segments) {
       }
     }
   }
-  if (!best || best.score < SCORE_MIN) return null;
+  if (!best || best.score < (typeof minScore === 'number' ? minScore : SCORE_MIN)) return null;
   return best;
 }
 

@@ -117,7 +117,8 @@ class BallTracker {
 
   /**
    * Process one video frame. imgData is ImageData at (imgW x imgH).
-   * Returns {x, y} full-res ball position, or null.
+   * Returns {x, y, size} — position plus a px-diameter estimate of the
+   * ball blob (bigger = closer phone = smaller call error) — or null.
    */
   detect(imgData, imgW, imgH) {
     if (!this.calibrated) return null;
@@ -154,12 +155,14 @@ class BallTracker {
       }
     }
     if (cn < MIN_BLOB) return null;
-    return { x: cx / cn, y: cy / cn };
+    // Ball diameter estimate: sampled matching px ~ pi*(D/2)^2 / PX_STEP^2,
+    // so D ~= sqrt(cn) * PX_STEP (within ~10% for a round blob).
+    return { x: cx / cn, y: cy / cn, size: Math.sqrt(cn) * PX_STEP };
   }
 
   /**
    * Update with a new frame. nowS = timestamp in seconds.
-   * Returns a bounce event {x, y, t} (full-res px) or null.
+   * Returns a bounce event {x, y, t, size} (processing-px) or null.
    */
   update(det, nowS) {
     if (det) {
@@ -210,6 +213,7 @@ class BallTracker {
       x: prev.x + (det.x - prev.x) * f,
       y: prev.y + (det.y - prev.y) * f,
       t: nowS,
+      size: (det && Number.isFinite(det.size)) ? det.size : 0,
     };
   }
 }

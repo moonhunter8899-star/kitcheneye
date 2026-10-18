@@ -18,7 +18,13 @@
     detScale: 1,                      // video px per 480-px (uniform)
     courtName: 'home-court',
     tracker: null,
-    netsync: null,
+    net: null,               // v2: NetSync session, or null in solo mode
+    netRole: null,           // v2: 'host' | 'joiner'
+    netPeers: [],            // v2 host: [{id, name}] of joined phones
+    netDead: false,          // v2 joiner: host vanished mid-match
+    arb: null,               // v2 host: bounce-arbitration window state
+    pendingStart: false,     // v2 joiner: host started while we were scanning
+    lastWhoWonAt: 0,         // v2 host: debounce cross-phone who-won taps
     armed: false,
     marginIn: 4,
     judging: false,
@@ -34,7 +40,7 @@
 
   function showScreen(name) {
     S.screen = name;
-    ['home', 'camera', 'calibrate', 'judge', 'replay'].forEach(n => {
+    ['home', 'camera', 'calibrate', 'judge', 'replay', 'lobby'].forEach(n => {
       const el = $('screen-' + n);
       if (el) el.classList.toggle('hidden', n !== name);
     });
@@ -143,35 +149,42 @@
 
   async function runScan() {
     clearTimeout(S.autoScanT); // a scan is starting; cancel any pending auto-scan
-    setStatus('scan-status', 'Scanning… hold the phone steady, court empty.');
-    try {
-      await new Promise(r => setTimeout(r, 60)); // let the status paint
-      const res = detectCourt(S.video, SEGMENTS);
-      if (!res) {
-        setStatus('scan-status', 'No court found. Try better light, or tap "Tap corners manually".');
-        return;
-      }
-      S.pendingScan = res;
-      clearOverlay(); // green quad is drawn over the LIVE video underneath
-      const c = S.octx;
-      c.strokeStyle = '#39ff88'; c.lineWidth = Math.max(3, S.overlay.width / 200);
-      c.beginPath();
-      res.corners.forEach((p, i) => {
-        const q = v2px(p);
-        if (i === 0) c.moveTo(q.x, q.y); else c.lineTo(q.x, q.y);
-      });
-      c.closePath(); c.stroke();
-      res.corners.forEach(p => {
-        const q = v2px(p);
-        c.fillStyle = '#39ff88';
-        c.beginPath(); c.arc(q.x, q.y, c.lineWidth * 2, 0, 7); c.fill();
-      });
-      setStatus('scan-status', 'Court found (match ' + Math.round(res.score * 100) + '%). Does the green box sit on the court lines?');
-      $('scan-confirm').classList.remove('hidden');
-    } catch (e) {
-      console.warn('scan failed', e);
-      setStatus('scan-status', 'Scan failed: ' + e.message);
+    // Retry a few times (the phone may still be moving); loosen the bar on
+    // later tries — the human "looks right?" confirm stays the safety net.
+    let res = null, lastErr = null;
+    for (let attempt = 1; attempt <= 3 && !res; attempt++) {
+      setStatus('scan-status', 'Scanning… hold the phone steady, court empty.' +
+        (attempt > 1 ? ' (try ' + attempt + ' of 3)' : ''));
+      try {
+        await new Promise(r => setTimeout(r, 60)); // let the status paint
+        res = detectCourt(S.video, SEGMENTS, attempt === 1 ? SCORE_MIN : 0.18);
+      } catch (e) { lastErr = e; console.warn('scan failed', e); }
+      if (!res && attempt < 3) await new Promise(r => setTimeout(r, 1200));
     }
+    if (!res) {
+      // Manual taps always work — drop straight in instead of asking.
+      setStatus('scan-status', "Auto-scan couldn't lock onto these lines — tap the 4 corners on the live view below." +
+        (lastErr ? ' (' + lastErr.message + ')' : ''));
+      startManual();
+      return;
+    }
+    S.pendingScan = res;
+    clearOverlay(); // green quad is drawn over the LIVE video underneath
+    const c = S.octx;
+    c.strokeStyle = '#39ff88'; c.lineWidth = Math.max(3, S.overlay.width / 200);
+    c.beginPath();
+    res.corners.forEach((p, i) => {
+      const q = v2px(p);
+      if (i === 0) c.moveTo(q.x, q.y); else c.lineTo(q.x, q.y);
+    });
+    c.closePath(); c.stroke();
+    res.corners.forEach(p => {
+      const q = v2px(p);
+      c.fillStyle = '#39ff88';
+      c.beginPath(); c.arc(q.x, q.y, c.lineWidth * 2, 0, 7); c.fill();
+    });
+    setStatus('scan-status', 'Court found (match ' + Math.round(res.score * 100) + '%). Does the green box sit on the court lines?');
+    $('scan-confirm').classList.remove('hidden');
   }
 
   function confirmScan() {
@@ -237,6 +250,8 @@
     showScreen('calibrate');
     drawCalPreview();
     selectPreset(S.ballPreset || 'franklin-x40');
+    const sj = $('btn-start-judge');
+    if (sj) sj.textContent = (S.netRole === 'host' || S.netRole === 'joiner') ? 'Continue' : 'Start judging';
   }
 
   // Apply a known ball color; then check the live view for a ball so the
@@ -351,19 +366,9 @@
     }
   }
 
-  function onBounce(b) {
-    let cx, cy;
-    try {
-      [cx, cy] = applyHomography(S.H, b.x, b.y);
-    } catch (e) { return; }
-    // Ignore bounces far from the court (another court, dead ball rolling).
-    if (cx < -8 || cx > 28 || cy < -8 || cy > 52) return;
-    const res = judge(cx, cy, S.marginIn);
-    S.netsync.sendBounce(cx, cy, b.t); // v2 seam: broadcast to other phones
-    showCall(res, cx, cy);
-    callSound(res.call);
-    // Dispute-replay record: everything the replay view needs.
-    const rec = {
+  // Build the dispute-replay record for a judged bounce (shared solo + net).
+  function buildCallRecord(cx, cy, res) {
+    return {
       id: 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36),
       at: Date.now(),
       x: Math.round(cx * 100) / 100,
@@ -374,11 +379,73 @@
       inside: res.inside,
       marginIn: S.marginIn,
     };
+  }
+
+  // Render a call everywhere it needs to go: banner, sound, history.
+  function handleCall(rec) {
+    const res = { call: rec.call, distIn: rec.distIn, line: rec.line, inside: rec.inside };
+    showCall(res, rec.x, rec.y);
+    callSound(rec.call);
     S.calls.unshift(rec);
     if (S.calls.length > 100) S.calls.length = 100;
     saveCalls();
     renderHistory();
     S.lastCallAt = performance.now();
+  }
+
+  function netActive() {
+    return !!S.net && !S.netDead && (S.netRole === 'host' || S.netRole === 'joiner');
+  }
+
+  function onBounce(b) {
+    let cx, cy;
+    try {
+      [cx, cy] = applyHomography(S.H, b.x, b.y);
+    } catch (e) { return; }
+    // Ignore bounces far from the court (another court, dead ball rolling).
+    if (cx < -8 || cx > 28 || cy < -8 || cy > 52) return;
+    if (S.netDead) return; // session died: never fall back to guessing locally
+    const size = (b && Number.isFinite(b.size)) ? b.size : 0;
+    if (netActive()) {
+      // v2: report to the host; every phone renders calls only from {t:'call'}.
+      const at = S.net.toHostTime(b.t);
+      if (S.netRole === 'host') {
+        hostCollectBounce({ x: cx, y: cy, at: at, size: size, from: 'host' });
+      } else {
+        try { S.net.send({ t: 'bounce', x: cx, y: cy, at: at, size: size }); } catch (e) {}
+      }
+      return;
+    }
+    // Solo: judge and show locally, exactly as before.
+    const res = judge(cx, cy, S.marginIn);
+    handleCall(buildCallRecord(cx, cy, res));
+  }
+
+  // ---- v2 host: bounce arbitration. First report opens a 300 ms window;
+  // pickWinner() takes the largest ball (nearest phone = least error).
+  function hostCollectBounce(report) {
+    if (!S.arb) S.arb = { reports: [], timer: null, lastCallAt: 0, lastCallPos: null };
+    const A = S.arb;
+    A.reports.push(report);
+    if (A.timer) return;
+    A.timer = setTimeout(() => {
+      A.timer = null;
+      const reports = A.reports;
+      A.reports = [];
+      const win = pickWinner(reports);
+      if (!win) return;
+      const now = performance.now();
+      if (now - A.lastCallAt < 600 && A.lastCallPos &&
+          Math.hypot(win.x - A.lastCallPos.x, win.y - A.lastCallPos.y) < 1.5) {
+        return; // same bounce arriving as a second window: duplicate
+      }
+      A.lastCallAt = now;
+      A.lastCallPos = { x: win.x, y: win.y };
+      const res = judge(win.x, win.y, S.marginIn);
+      const rec = buildCallRecord(win.x, win.y, res);
+      try { S.net.broadcast({ t: 'call', rec: rec, by: 'host' }); } catch (e) {}
+      handleCall(rec);
+    }, 300);
   }
 
   function showCall(res, cx, cy) {
@@ -564,6 +631,89 @@
     updateArmUI();
   }
 
+  // ---- v2 multi-phone scoring ----
+  // Joiners route their taps through the host; the host owns the Score.
+  function whoWonTap(team) {
+    if (S.netRole === 'joiner' && S.net && !S.netDead) {
+      try { S.net.send({ t: 'who-won', team: team }); }
+      catch (e) { setStatus('judge-status', "Couldn't reach the host."); return; }
+      hideWhoWon();
+      setStatus('judge-status', 'Sent to host…');
+      updateArmUI();
+      return;
+    }
+    recordPoint(team);
+    if (S.netRole === 'host' && S.net) {
+      try { S.net.broadcast({ t: 'score', state: S.score.state() }); } catch (e) {}
+    }
+  }
+
+  // Host: a joiner reported a rally winner. Debounced so two phones tapping
+  // the same point within a few seconds can't double-score it.
+  function hostWhoWon(team) {
+    if (team !== 'us' && team !== 'them') return;
+    const now = performance.now();
+    if (now - S.lastWhoWonAt < 3000) return;
+    S.lastWhoWonAt = now;
+    recordPoint(team);
+    try { S.net.broadcast({ t: 'score', state: S.score.state() }); } catch (e) {}
+  }
+
+  function onHostMessage(peerId, msg) {
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.t === 'bounce') {
+      hostCollectBounce({
+        x: +msg.x, y: +msg.y, at: +msg.at,
+        size: Number.isFinite(+msg.size) ? +msg.size : 0,
+        from: peerId,
+      });
+    } else if (msg.t === 'who-won') {
+      hostWhoWon(msg.team);
+    }
+  }
+
+  // Joiner: messages from the host.
+  function onNetMessage(msg) {
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.t === 'call' && msg.rec) {
+      handleCall(msg.rec);
+    } else if (msg.t === 'score' && msg.state) {
+      try {
+        S.score = Score.fromState(msg.state);
+      } catch (e) { console.warn('bad score state', e); return; }
+      saveScore();
+      renderScoreboard();
+      hideWhoWon();
+      if (S.score.over) {
+        $('gameover-text').textContent = teamName(S.score.winner) + ' wins the game — ' + S.score.scoreText();
+        $('game-over').classList.remove('hidden');
+      } else {
+        $('game-over').classList.add('hidden');
+      }
+      updateArmUI();
+    } else if (msg.t === 'start') {
+      if (S.screen === 'lobby') {
+        enterJudge();
+        setStatus('judge-status', 'Connected to host — tap "Start point", then serve.');
+      } else {
+        S.pendingStart = true; // still scanning: start when we reach the lobby
+      }
+    } else if (msg.t === 'bye') {
+      netHostGone();
+    }
+  }
+
+  function netHostGone() {
+    if (S.netRole !== 'joiner') return;
+    netClose();
+    S.netDead = true;
+    S.armed = false;
+    updateArmUI();
+    setStatus('judge-status', 'Host left — match over.');
+    const bh = $('btn-net-home');
+    if (bh) bh.classList.remove('hidden');
+  }
+
   function updateArmUI() {
     const b = $('btn-arm');
     if (!b) return;
@@ -581,6 +731,174 @@
     if (el) el.textContent = msg;
   }
 
+  // ---------- v2 multi-phone lobby + session ----------
+  function showLobby(view) {
+    showScreen('lobby');
+    ['choose', 'host', 'join', 'waiting'].forEach(v => {
+      const el = $('lobby-' + v);
+      if (el) el.classList.toggle('hidden', v !== view);
+    });
+    window.scrollTo(0, 0);
+  }
+
+  function setLobbyStatus(msg) { setStatus('lobby-status', msg); }
+  function setJoinStatus(msg) { setStatus('lobby-join-status', msg); }
+
+  function netClose() {
+    S.netSeq = (S.netSeq || 0) + 1; // invalidates in-flight host/join attempts
+    try { if (S.net) S.net.close(); } catch (e) {}
+    S.net = null; S.netRole = null; S.netPeers = [];
+    if (S.arb && S.arb.timer) clearTimeout(S.arb.timer);
+    S.arb = null; S.pendingStart = false;
+  }
+
+  function goHome() {
+    S.armed = false;
+    netClose();
+    S.netDead = false;
+    const bh = $('btn-net-home');
+    if (bh) bh.classList.add('hidden');
+    if (S.stream) { S.stream.getTracks().forEach(t => t.stop()); S.stream = null; }
+    showScreen('home');
+  }
+
+  function renderLobbyPeers() {
+    const ul = $('lobby-peers');
+    if (ul) {
+      ul.innerHTML = '';
+      const rows = [{ name: 'This phone (host)' }].concat(S.netPeers.map(p => ({ name: p.name })));
+      for (const r of rows) {
+        const li = document.createElement('li');
+        li.textContent = r.name;
+        ul.appendChild(li);
+      }
+    }
+    const n = S.netPeers.length + 1;
+    const sb = $('btn-lobby-start');
+    if (sb) sb.textContent = '2 · Start match (' + n + ' phone' + (n === 1 ? '' : 's') + ')';
+  }
+
+  async function hostMatch() {
+    showLobby('host'); // show the host view first so statuses are visible
+    if (!NetSync.peerAvailable()) {
+      setLobbyStatus('Multi-phone needs internet for the one-time handshake — the sync library could not load.');
+      return;
+    }
+    S.netDead = false;
+    setLobbyStatus('Creating room…');
+    const net = new NetSync();
+    const mySeq = S.netSeq || 0;
+    try {
+      const code = await net.hostRoom((e) =>
+        setLobbyStatus('Connection problem: ' + (e && e.message ? e.message : e)));
+      if (mySeq !== (S.netSeq || 0)) { try { net.close(); } catch (e) {} return; } // user cancelled meanwhile
+      S.net = net; S.netRole = 'host'; S.netPeers = [];
+      $('lobby-code').textContent = code;
+      net.onJoin((id, name) => {
+        if (!S.netPeers.some(p => p.id === id)) S.netPeers.push({ id: id, name: name });
+        renderLobbyPeers();
+      });
+      net.onLeave((id) => {
+        S.netPeers = S.netPeers.filter(p => p.id !== id);
+        renderLobbyPeers();
+      });
+      net.onHostMessage(onHostMessage);
+      renderLobbyPeers();
+      setLobbyStatus('Waiting for phones…');
+    } catch (e) {
+      setLobbyStatus('Could not create the room. Check your internet and try again.');
+    }
+  }
+
+  async function joinMatch() {
+    const code = (($('join-code').value || '').toUpperCase().trim());
+    const name = (($('join-name').value || '').trim() || 'Phone').slice(0, 24);
+    if (!/^[A-Z0-9]{6}$/.test(code)) {
+      setJoinStatus('Enter the 6-character code shown on the host phone.');
+      return;
+    }
+    if (!NetSync.peerAvailable()) {
+      setJoinStatus('Multi-phone needs internet for the one-time handshake — the sync library could not load.');
+      return;
+    }
+    S.netDead = false;
+    setJoinStatus('Connecting…');
+    $('btn-join').classList.add('hidden');
+    const net = new NetSync();
+    const mySeq = S.netSeq || 0;
+    try {
+      await net.joinRoom(code, name, (e) =>
+        setJoinStatus('Connection problem: ' + (e && e.message ? e.message : e)));
+      if (mySeq !== (S.netSeq || 0)) { try { net.close(); } catch (e) {} return; } // user backed out meanwhile
+      S.net = net; S.netRole = 'joiner';
+      net.onMessage(onNetMessage);
+      net.onLeave(() => netHostGone());
+      setJoinStatus('Connected! Now scan the court from your spot.');
+      $('btn-join-scan').classList.remove('hidden');
+    } catch (e) {
+      setJoinStatus('Could not join. Check the code and your internet, then try again.');
+      $('btn-join').classList.remove('hidden');
+    }
+  }
+
+  function hostStartMatch() {
+    if (S.netRole !== 'host' || !S.net) return;
+    if (!S.H) {
+      setLobbyStatus('Scan your court first (step 1 above), then start the match.');
+      return;
+    }
+    newScore(); // fresh game; the host owns the score
+    try {
+      S.net.broadcast({ t: 'score', state: S.score.state() });
+      S.net.broadcast({ t: 'start' });
+    } catch (e) {}
+    enterJudge();
+    const n = S.netPeers.length + 1;
+    setStatus('judge-status', 'Match live — ' + n + ' phone' + (n === 1 ? '' : 's') +
+      ' judging. Tap "Start point", then serve.');
+  }
+
+  // Joiner path from the calibrate screen's Continue button.
+  function joinerContinue() {
+    if (S.pendingStart) {
+      S.pendingStart = false;
+      enterJudge();
+      setStatus('judge-status', 'Connected to host — tap "Start point", then serve.');
+      return;
+    }
+    showLobby('waiting');
+  }
+
+  // Shared camera/scan flow for solo, host, and joiner.
+  async function startScanFlow() {
+    S.courtName = ($('court-name').value || 'home-court').trim() || 'home-court';
+    // unlock audio on the user gesture
+    try {
+      if (!S.audio) S.audio = new (window.AudioContext || window.webkitAudioContext)();
+      if (S.audio.state === 'suspended') S.audio.resume();
+    } catch (e) {}
+    const ok = await startCamera();
+    if (!ok) return;
+    // fresh scan state
+    S.H = null; S.pendingScan = null; S.tapping = false; S.manualCorners = null;
+    clearTimeout(S.autoScanT);
+    $('scan-confirm').classList.add('hidden');
+    $('scan-done-manual').classList.add('hidden');
+    // offer a saved court to skip the scan
+    const saved = loadCourt(S.courtName);
+    if (saved && saved.H) {
+      S.H = saved.H;
+      $('resume-court').classList.remove('hidden');
+      setStatus('scan-status', 'Saved calibration found for "' + S.courtName + '". Resume it, or scan fresh below.');
+    } else {
+      $('resume-court').classList.add('hidden');
+      setStatus('scan-status', 'Aim at the empty court — scanning automatically…');
+      autoScanSoon();
+    }
+    showScreen('camera');
+    clearOverlay(); // live video shows through; markers drawn on top
+  }
+
   // ---------- boot ----------
   function init() {
     S.video = $('cam-video');
@@ -589,7 +907,6 @@
     S.proc = document.createElement('canvas');
     S.pctx = S.proc.getContext('2d', { willReadFrequently: true });
     S.tracker = new BallTracker();
-    S.netsync = new NetSync();
     loadCalls();
     renderHistory();
     loadScore();
@@ -600,34 +917,36 @@
     document.querySelectorAll('#preset-row .preset').forEach(b =>
       b.addEventListener('click', () => selectPreset(b.dataset.preset)));
 
-    $('btn-setup').addEventListener('click', async () => {
-      S.courtName = ($('court-name').value || 'home-court').trim() || 'home-court';
-      // unlock audio on the user gesture
-      try {
-        if (!S.audio) S.audio = new (window.AudioContext || window.webkitAudioContext)();
-        if (S.audio.state === 'suspended') S.audio.resume();
-      } catch (e) {}
-      const ok = await startCamera();
-      if (!ok) return;
-      // fresh scan state
-      S.H = null; S.pendingScan = null; S.tapping = false; S.manualCorners = null;
-      clearTimeout(S.autoScanT);
-      $('scan-confirm').classList.add('hidden');
-      $('scan-done-manual').classList.add('hidden');
-      // offer a saved court to skip the scan
-      const saved = loadCourt(S.courtName);
-      if (saved && saved.H) {
-        S.H = saved.H;
-        $('resume-court').classList.remove('hidden');
-        setStatus('scan-status', 'Saved calibration found for "' + S.courtName + '". Resume it, or scan fresh below.');
-      } else {
-        $('resume-court').classList.add('hidden');
-        setStatus('scan-status', 'Aim at the empty court — scanning automatically…');
-        autoScanSoon();
-      }
-      showScreen('camera');
-      clearOverlay(); // live video shows through; markers drawn on top
+    // v2: hide the multi-phone entry when the sync library is unreachable;
+    // solo mode works untouched.
+    if (!NetSync.peerAvailable()) {
+      const bm = $('btn-multi');
+      if (bm) bm.classList.add('hidden');
+    }
+
+    $('btn-setup').addEventListener('click', () => {
+      S.netDead = false;
+      startScanFlow();
     });
+
+    // v2 lobby wiring
+    $('btn-multi').addEventListener('click', () => showLobby('choose'));
+    $('btn-lobby-back').addEventListener('click', () => showScreen('home'));
+    $('btn-host').addEventListener('click', hostMatch);
+    $('btn-show-join').addEventListener('click', () => {
+      setJoinStatus('');
+      $('btn-join').classList.remove('hidden');
+      $('btn-join-scan').classList.add('hidden');
+      showLobby('join');
+    });
+    $('btn-join').addEventListener('click', joinMatch);
+    $('btn-join-scan').addEventListener('click', () => { S.netDead = false; startScanFlow(); });
+    $('btn-lobby-back2').addEventListener('click', () => { netClose(); showLobby('choose'); });
+    $('btn-host-scan').addEventListener('click', () => { S.netDead = false; startScanFlow(); });
+    $('btn-lobby-start').addEventListener('click', hostStartMatch);
+    $('btn-lobby-cancel').addEventListener('click', () => { netClose(); showScreen('home'); });
+    $('btn-lobby-leave').addEventListener('click', () => { netClose(); showScreen('home'); });
+    $('btn-net-home').addEventListener('click', goHome);
 
     $('btn-retry-cam').addEventListener('click', async () => {
       if (await startCamera()) {
@@ -647,12 +966,16 @@
       enterCalibrate();
     });
 
-    $('btn-start-judge').addEventListener('click', enterJudge);
+    $('btn-start-judge').addEventListener('click', () => {
+      if (S.netRole === 'joiner' && S.net) joinerContinue();
+      else if (S.netRole === 'host' && S.net) showLobby('host');
+      else enterJudge();
+    });
 
     // dispute replay + scorekeeper wiring
     $('btn-replay-back').addEventListener('click', resumeJudge);
-    $('btn-us-won').addEventListener('click', () => recordPoint('us'));
-    $('btn-them-won').addEventListener('click', () => recordPoint('them'));
+    $('btn-us-won').addEventListener('click', () => whoWonTap('us'));
+    $('btn-them-won').addEventListener('click', () => whoWonTap('them'));
     $('btn-new-game').addEventListener('click', () => {
       $('game-over').classList.add('hidden');
       newScore();
@@ -733,11 +1056,7 @@
       setStatus('scan-status', 'Aim at the empty court — scanning automatically…');
       autoScanSoon();
     });
-    $('btn-home').addEventListener('click', () => {
-      S.armed = false;
-      if (S.stream) { S.stream.getTracks().forEach(t => t.stop()); S.stream = null; }
-      showScreen('home');
-    });
+    $('btn-home').addEventListener('click', goHome);
 
     // prefill saved court names
     try {

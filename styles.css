@@ -119,6 +119,21 @@ button.big.armed { background: #7a2e12; border-color: #a34a1f; }
 .replay-caption.cap-too-close { color: var(--warn); }
 #replay-court { width: 100%; max-width: 300px; margin: 0 auto; display: block; border-radius: 10px; border: 1px solid var(--border); }
 
+/* multi-phone lobby */
+.room-code {
+  font-size: 54px; font-weight: 800; letter-spacing: 10px; text-indent: 10px;
+  text-align: center; margin: 10px 0; color: var(--accent);
+}
+.peers { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.peers li {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px; font-size: 15px;
+}
+#join-code {
+  text-transform: uppercase; letter-spacing: 6px; text-indent: 6px;
+  font-size: 22px; font-weight: 700; text-align: center;
+}
+
 /* settings additions */
 .field select {
   background: var(--surface); border: 1px solid var(--border); color: var(--text);
