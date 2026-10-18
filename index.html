@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0d1b2a">
+<title>KitchenEye — pickleball line calls</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ============ HOME ============ -->
+<section id="screen-home" class="screen">
+  <div class="wrap">
+    <h1>KitchenEye</h1>
+    <p class="sub">Phone line-judge for pickleball. Scan the court, tap the ball, get IN / OUT calls.</p>
+    <label class="field">
+      <span>Court name (calibration is saved per court)</span>
+      <input id="court-name" type="text" value="home-court" autocomplete="off">
+    </label>
+    <button id="btn-setup" class="big primary">Set up camera</button>
+    <p class="hint">Uses the rear camera. Video never leaves your phone. Needs HTTPS (or localhost) for camera access.</p>
+    <p id="cam-error" class="error hidden"></p>
+    <button id="btn-retry-cam" class="big hidden">Retry camera</button>
+  </div>
+</section>
+
+<!-- ============ CAMERA / SCAN ============ -->
+<section id="screen-camera" class="screen hidden">
+  <div class="stage">
+    <video id="cam-video" playsinline muted></video>
+    <canvas id="cam-overlay"></canvas>
+  </div>
+  <div class="controls">
+    <p id="scan-status" class="status"></p>
+    <div class="row">
+      <button id="btn-scan" class="big primary">Scan court</button>
+      <button id="btn-manual" class="big">Tap corners manually</button>
+    </div>
+    <div id="scan-confirm" class="hidden row">
+      <button id="btn-scan-confirm" class="big primary">Looks right — continue</button>
+    </div>
+    <div id="scan-done-manual" class="hidden row">
+      <button id="btn-manual-done" class="big primary">Corners set — continue</button>
+    </div>
+    <div id="resume-court" class="hidden row">
+      <button id="btn-resume-court" class="big primary">Resume saved calibration</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ BALL CALIBRATION ============ -->
+<section id="screen-calibrate" class="screen hidden">
+  <div class="wrap">
+    <h2>Teach it the ball</h2>
+    <p id="cal-status" class="status"></p>
+    <canvas id="cal-canvas" class="preview"></canvas>
+    <button id="btn-start-judge" class="big primary" disabled>Start judging</button>
+  </div>
+</section>
+
+<!-- ============ JUDGE ============ -->
+<section id="screen-judge" class="screen hidden">
+  <div id="call-banner" class="banner"></div>
+  <p id="call-detail" class="detail"></p>
+  <div class="judge-grid">
+    <svg id="mini-court" viewBox="0 0 200 300" aria-label="Top-down court with bounce point"></svg>
+    <div class="judge-side">
+      <button id="btn-arm" class="big primary">Start point</button>
+      <p id="judge-status" class="status"></p>
+    </div>
+  </div>
+  <details class="settings">
+    <summary>Settings</summary>
+    <label class="field">
+      <span>Too-close margin: <b id="margin-val">4 in</b></span>
+      <input id="margin" type="range" min="2" max="8" step="1" value="4">
+    </label>
+    <div class="row">
+      <button id="btn-recal-ball" class="big">Re-tap ball color</button>
+      <button id="btn-rescan" class="big">Rescan court</button>
+      <button id="btn-home" class="big">Home</button>
+    </div>
+  </details>
+  <h3>Call history</h3>
+  <ul id="call-history" class="history"></ul>
+</section>
+
+<script src="js/call.js"></script>
+<script src="js/scan.js"></script>
+<script src="js/track.js"></script>
+<script src="js/netsync.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

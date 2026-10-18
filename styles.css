@@ -1,0 +1,86 @@
+/* KitchenEye v1 — dark, phone-first. Big touch targets, no fuss. */
+:root {
+  --bg: #0d1b2a;
+  --surface: #14293f;
+  --text: #eef4fb;
+  --muted: #9db2c9;
+  --accent: #39ff88;
+  --warn: #ffd24d;
+  --bad: #ff5d5d;
+  --border: #274264;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg); color: var(--text);
+  font-family: -apple-system, system-ui, "Segoe UI", sans-serif;
+  min-height: 100vh;
+}
+.hidden { display: none !important; }
+.screen { padding: 16px; max-width: 640px; margin: 0 auto; }
+.wrap { display: flex; flex-direction: column; gap: 14px; }
+h1 { font-size: 34px; margin: 12px 0 0; letter-spacing: 0.5px; }
+h2 { font-size: 24px; margin: 8px 0 0; }
+h3 { font-size: 16px; margin: 18px 0 6px; color: var(--muted); }
+.sub { color: var(--muted); margin: 0; line-height: 1.45; }
+.hint { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.status { color: var(--muted); font-size: 14px; line-height: 1.5; min-height: 20px; }
+.error {
+  background: #3a1418; border: 1px solid var(--bad); color: #ffc9c9;
+  border-radius: 10px; padding: 12px; font-size: 14px; line-height: 1.5;
+}
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--muted); }
+.field input[type="text"] {
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  border-radius: 10px; padding: 14px; font-size: 17px;
+}
+.field input[type="range"] { width: 100%; height: 44px; }
+
+button.big {
+  appearance: none; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text);
+  border-radius: 12px; padding: 16px 18px;
+  font-size: 17px; font-weight: 600; cursor: pointer;
+  min-height: 56px;
+}
+button.big:active { transform: scale(0.98); }
+button.big.primary { background: #1f6f43; border-color: #2a8f57; }
+button.big:disabled { opacity: 0.4; }
+button.big.armed { background: #7a2e12; border-color: #a34a1f; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.row .big { flex: 1 1 45%; }
+
+/* camera stage: video with overlay canvas pinned on top */
+.stage { position: relative; width: 100%; border-radius: 12px; overflow: hidden; background: #000; }
+.stage video, .stage canvas {
+  display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
+}
+.stage canvas { position: absolute; inset: 0; }
+.controls { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.preview { width: 100%; border-radius: 12px; border: 1px solid var(--border); }
+
+/* judge screen */
+.banner {
+  display: none; text-align: center; font-size: 52px; font-weight: 800;
+  letter-spacing: 2px; border-radius: 14px; padding: 18px; margin-bottom: 6px;
+}
+.banner.show { display: block; }
+.banner.in { background: #123f27; color: var(--accent); border: 2px solid var(--accent); }
+.banner.out { background: #471416; color: var(--bad); border: 2px solid var(--bad); }
+.banner.too-close { background: #4a3a10; color: var(--warn); border: 2px solid var(--warn); }
+.detail { text-align: center; color: var(--muted); font-size: 14px; min-height: 20px; margin: 0 0 10px; }
+.judge-grid { display: flex; gap: 14px; align-items: stretch; }
+#mini-court { width: 150px; flex: none; border-radius: 10px; border: 1px solid var(--border); }
+.judge-side { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+
+.settings { margin-top: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.settings summary { font-size: 16px; font-weight: 600; cursor: pointer; padding: 6px 0; }
+
+.history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.history li {
+  background: var(--surface); border: 1px solid var(--border); border-left-width: 6px;
+  border-radius: 8px; padding: 10px 12px; font-size: 14px;
+}
+.history li.hist-in { border-left-color: var(--accent); }
+.history li.hist-out { border-left-color: var(--bad); }
+.history li.hist-too-close { border-left-color: var(--warn); }
