@@ -129,7 +129,19 @@
   }
 
   // ---------- scan ----------
+  // Fire one automatic scan shortly after the camera opens, so the user
+  // just aims at the court. Skipped when a result/confirm is already up.
+  function autoScanSoon() {
+    clearTimeout(S.autoScanT);
+    S.autoScanT = setTimeout(() => {
+      if (S.screen !== 'camera' || S.tapping || S.pendingScan) return;
+      if (!$('scan-confirm').classList.contains('hidden')) return;
+      runScan();
+    }, 2500);
+  }
+
   async function runScan() {
+    clearTimeout(S.autoScanT); // a scan is starting; cancel any pending auto-scan
     setStatus('scan-status', 'Scanning… hold the phone steady, court empty.');
     try {
       await new Promise(r => setTimeout(r, 60)); // let the status paint
@@ -179,6 +191,7 @@
 
   // ---------- manual corner taps ----------
   function startManual() {
+    clearTimeout(S.autoScanT); // user took over; no auto-scan
     S.manualTaps = [];
     clearOverlay();
     setStatus('scan-status', 'You see the court live — tap the 4 corners in order: near-left, near-right, far-right, far-left.');
@@ -554,6 +567,11 @@
       } catch (e) {}
       const ok = await startCamera();
       if (!ok) return;
+      // fresh scan state
+      S.H = null; S.pendingScan = null; S.tapping = false; S.manualCorners = null;
+      clearTimeout(S.autoScanT);
+      $('scan-confirm').classList.add('hidden');
+      $('scan-done-manual').classList.add('hidden');
       // offer a saved court to skip the scan
       const saved = loadCourt(S.courtName);
       if (saved && saved.H) {
@@ -562,7 +580,8 @@
         setStatus('scan-status', 'Saved calibration found for "' + S.courtName + '". Resume it, or scan fresh below.');
       } else {
         $('resume-court').classList.add('hidden');
-        setStatus('scan-status', 'Aim at the empty court so all four corners are visible, then tap Scan court.');
+        setStatus('scan-status', 'Aim at the empty court — scanning automatically…');
+        autoScanSoon();
       }
       showScreen('camera');
       clearOverlay(); // live video shows through; markers drawn on top
@@ -665,8 +684,12 @@
     $('btn-recal-ball').addEventListener('click', () => { showScreen('calibrate'); drawCalPreview(); });
     $('btn-rescan').addEventListener('click', () => {
       S.armed = false; updateArmUI();
+      S.H = null; S.pendingScan = null; S.tapping = false; S.manualCorners = null;
+      $('scan-confirm').classList.add('hidden');
+      $('scan-done-manual').classList.add('hidden');
       showScreen('camera'); clearOverlay();
-      setStatus('scan-status', 'Aim at the empty court — you see it live — then tap Scan court.');
+      setStatus('scan-status', 'Aim at the empty court — scanning automatically…');
+      autoScanSoon();
     });
     $('btn-home').addEventListener('click', () => {
       S.armed = false;
