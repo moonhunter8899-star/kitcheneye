@@ -35,6 +35,22 @@ var PEER_PREFIX = 'ke-';
 var JOIN_TIMEOUT_MS = 15000;
 var CODE_RE = /^[A-Z0-9]{6}$/;
 
+// ICE: Google STUN plus a free TURN relay (Open Relay Project). TURN over
+// 443/TCP gets through cellular carrier NATs and locked-down WiFi where
+// direct peer-to-peer UDP fails. If the relay is unreachable, ICE simply
+// falls back to the other candidates.
+var PEER_CONFIG = {
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+    ],
+  },
+};
+
 function makeCode() {
   var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I/O/0/1 confusion
   var s = '';
@@ -110,7 +126,7 @@ class NetSync {
       self.code = makeCode();
       var peer;
       try {
-        peer = new Peer(PEER_PREFIX + self.code);
+        peer = new Peer(PEER_PREFIX + self.code, PEER_CONFIG);
       } catch (e) {
         self._err(onErr, e); reject(e); return;
       }
@@ -208,7 +224,7 @@ class NetSync {
       self.code = clean;
       var peer;
       try {
-        peer = new Peer();
+        peer = new Peer(PEER_CONFIG);
       } catch (e) {
         self._err(onErr, e); reject(e); return;
       }

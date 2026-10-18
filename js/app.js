@@ -869,7 +869,9 @@
       setJoinStatus('Connected! Now scan the court from your spot.');
       $('btn-join-scan').classList.remove('hidden');
     } catch (e) {
-      setJoinStatus('Could not join. Check the code and your internet, then try again.');
+      // Surface the real reason (peer-unavailable, timeout, …) — not just
+      // the generic line — so a failure can actually be diagnosed.
+      setJoinStatus('Could not join (' + (e && e.message ? e.message : e) + '). Check the code and your internet, then try again.');
       $('btn-join').classList.remove('hidden');
     }
   }
