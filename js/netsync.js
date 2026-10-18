@@ -32,7 +32,7 @@
 'use strict';
 
 var PEER_PREFIX = 'ke-';
-var JOIN_TIMEOUT_MS = 15000;
+var JOIN_TIMEOUT_MS = 30000; // cellular + TURN can take a while; fail with a useful message after 30 s
 var CODE_RE = /^[A-Z0-9]{6}$/;
 
 // ICE: Google STUN plus a free TURN relay (Open Relay Project). TURN over

@@ -882,9 +882,12 @@
       // went to sleep — so say that instead of blaming the code/internet.
       const msg = e && e.message ? e.message : String(e);
       const roomGone = /could not connect to peer|peer-unavailable/i.test(msg);
+      const timedOut = /timed out/i.test(msg);
       setJoinStatus(roomGone
         ? 'That room is gone — the host phone probably left the Room code screen or fell asleep. Keep the host on that screen and try again, or have the host make a fresh room.'
-        : 'Could not join (' + msg + '). Check the code and your internet, then try again.');
+        : timedOut
+          ? 'Could not join (timed out). If the phones are on cellular, put them all on the same WiFi — one phone\u2019s hotspot works great — then try again.'
+          : 'Could not join (' + msg + '). Check the code and your internet, then try again.');
       $('btn-join').classList.remove('hidden');
     }
   }
