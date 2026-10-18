@@ -123,11 +123,15 @@ node --check js/score.js && node /tmp/test-score.js          # scoring
 ## v2 — multi-phone matches (built)
 
 - **Pairing** (`js/netsync.js`): one phone taps **Multi-phone match →
-  Host a match** and shows a 6-character code; the others tap **Join a
-  match** and enter it. Star topology over WebRTC data channels via PeerJS
-  (the single CDN dependency; if it can't load, the multi-phone buttons
-  hide and solo mode works untouched). Video never leaves the phones —
-  only tiny JSON messages travel.
+  Host a match** and shows a QR code plus the 6-character code. The other
+  phones just point their regular camera app at the QR — it opens KitchenEye
+  with the room pre-filled and joins automatically (`?r=CODE`; the link is
+  cleaned from the URL after reading). Typing the code manually still works.
+  Star topology over WebRTC data channels via PeerJS (the single CDN
+  dependency; if it can't load, the multi-phone buttons hide and solo mode
+  works untouched). The QR itself is drawn on-device by a tiny dependency-free
+  encoder (`js/qr.js`, byte mode, ECC-L) — no network call, works offline.
+  Video never leaves the phones — only tiny JSON messages travel.
 - **Flow**: every phone scans the court from its own position (auto or
   manual taps — the kitchen/centerline template match disambiguates each
   phone's orientation, so all share one court coordinate frame), picks the
@@ -185,4 +189,5 @@ node --check js/score.js && node /tmp/test-score.js          # scoring
 | `js/scan.js` | Hough court detection + homography + persistence |
 | `js/track.js` | HSV ball tracking + bounce detection (reports ball `size`) |
 | `js/netsync.js` | v2 multi-phone sync: PeerJS host/join, clock sync, pickWinner |
+| `js/qr.js` | Dependency-free QR encoder for the host's join link (verified vs jsqr) |
 | `js/app.js` | State machine + camera + judge loop |

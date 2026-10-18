@@ -794,6 +794,17 @@
       if (mySeq !== (S.netSeq || 0)) { try { net.close(); } catch (e) {} return; } // user cancelled meanwhile
       S.net = net; S.netRole = 'host'; S.netPeers = [];
       $('lobby-code').textContent = code;
+      // QR join link: point another phone's camera at it and it opens this
+      // app straight into the room. Zero dependencies — drawn on-device.
+      try {
+        const qc = $('lobby-qr');
+        if (qc && typeof qrDraw === 'function') {
+          let base = location.href.split('?')[0].split('#')[0];
+          if (base.endsWith('index.html')) base = base.slice(0, -10);
+          qrDraw(qc, base + '?r=' + code);
+          qc.classList.remove('hidden');
+        }
+      } catch (e) { console.warn('qr draw failed', e); }
       net.onJoin((id, name) => {
         if (!S.netPeers.some(p => p.id === id)) S.netPeers.push({ id: id, name: name });
         renderLobbyPeers();
@@ -1065,6 +1076,20 @@
     } catch (e) {}
 
     showScreen('home');
+
+    // v2: QR join link (?r=CODE) scanned from the host phone's screen —
+    // land straight in the join view with the code filled in.
+    try {
+      const m = /[?&]r=([A-Za-z0-9]{6})(?:[^A-Za-z0-9]|$)/.exec(location.search || '');
+      if (m) {
+        const code = m[1].toUpperCase();
+        if (window.history && history.replaceState) history.replaceState(null, '', location.pathname);
+        showLobby('join');
+        $('join-code').value = code;
+        setJoinStatus('Joining room ' + code + '…');
+        setTimeout(joinMatch, 500);
+      }
+    } catch (e) {}
   }
 
   if (document.readyState === 'loading') {

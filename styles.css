@@ -124,6 +124,10 @@ button.big.armed { background: #7a2e12; border-color: #a34a1f; }
   font-size: 54px; font-weight: 800; letter-spacing: 10px; text-indent: 10px;
   text-align: center; margin: 10px 0; color: var(--accent);
 }
+.qr {
+  display: block; width: 220px; height: 220px; margin: 10px auto;
+  background: #fff; border-radius: 10px; image-rendering: pixelated;
+}
 .peers { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .peers li {
   background: var(--surface); border: 1px solid var(--border);

@@ -39,8 +39,9 @@
     </div>
     <div id="lobby-host" class="hidden">
       <h2>Room code</h2>
+      <canvas id="lobby-qr" class="qr hidden"></canvas>
       <p id="lobby-code" class="room-code">······</p>
-      <p class="sub">Other phones: tap <b>Multi-phone match → Join a match</b> and enter this code.</p>
+      <p class="sub">Other phones: point their camera at the code above — it opens this app right in the room. Or tap <b>Multi-phone match → Join a match</b> and type the code.</p>
       <h3>Phones in the match</h3>
       <ul id="lobby-peers" class="peers"></ul>
       <p id="lobby-status" class="status"></p>
@@ -190,6 +191,7 @@
 <script src="js/netsync.js"></script>
 <script src="js/replay.js"></script>
 <script src="js/score.js"></script>
+<script src="js/qr.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
