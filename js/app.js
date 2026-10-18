@@ -88,7 +88,13 @@
       });
       S.stream = stream;
       S.video.srcObject = stream;
-      await S.video.play().catch(() => {});
+      S.video.muted = true;
+      S.video.playsInline = true;
+      try { await S.video.play(); } catch (e) { /* checked below */ }
+      if (S.video.paused) {
+        err('The camera started but the preview did not. Tap Retry — and check no other app is using the camera.');
+        return false;
+      }
       sizeOverlay();
       return true;
     } catch (e) {
@@ -115,9 +121,11 @@
   const v2px = (p480) => ({ x: p480.x * S.detScale, y: p480.y * S.detScale });
   const px2v = (x, y) => ({ x: x / S.detScale, y: y / S.detScale }); // video px -> 480-space
 
-  function drawVideoFrame() {
+  // The overlay canvas stays transparent: the live <video> shows through it
+  // and we only paint markers (scan quad, manual tap dots) on top.
+  function clearOverlay() {
+    if (!S.overlay || !S.octx) return;
     S.octx.clearRect(0, 0, S.overlay.width, S.overlay.height);
-    S.octx.drawImage(S.video, 0, 0, S.overlay.width, S.overlay.height);
   }
 
   // ---------- scan ----------
@@ -131,7 +139,7 @@
         return;
       }
       S.pendingScan = res;
-      drawVideoFrame();
+      clearOverlay(); // green quad is drawn over the LIVE video underneath
       const c = S.octx;
       c.strokeStyle = '#39ff88'; c.lineWidth = Math.max(3, S.overlay.width / 200);
       c.beginPath();
@@ -172,8 +180,8 @@
   // ---------- manual corner taps ----------
   function startManual() {
     S.manualTaps = [];
-    drawVideoFrame();
-    setStatus('scan-status', 'Tap the 4 corners in order: near-left, near-right, far-right, far-left.');
+    clearOverlay();
+    setStatus('scan-status', 'You see the court live — tap the 4 corners in order: near-left, near-right, far-right, far-left.');
     S.tapping = true;
   }
 
@@ -557,13 +565,13 @@
         setStatus('scan-status', 'Aim at the empty court so all four corners are visible, then tap Scan court.');
       }
       showScreen('camera');
-      drawVideoFrame();
+      clearOverlay(); // live video shows through; markers drawn on top
     });
 
     $('btn-retry-cam').addEventListener('click', async () => {
       if (await startCamera()) {
         showScreen('camera');
-        drawVideoFrame();
+        clearOverlay();
       }
     });
 
@@ -657,8 +665,8 @@
     $('btn-recal-ball').addEventListener('click', () => { showScreen('calibrate'); drawCalPreview(); });
     $('btn-rescan').addEventListener('click', () => {
       S.armed = false; updateArmUI();
-      showScreen('camera'); drawVideoFrame();
-      setStatus('scan-status', 'Aim at the empty court, then tap Scan court.');
+      showScreen('camera'); clearOverlay();
+      setStatus('scan-status', 'Aim at the empty court — you see it live — then tap Scan court.');
     });
     $('btn-home').addEventListener('click', () => {
       S.armed = false;
