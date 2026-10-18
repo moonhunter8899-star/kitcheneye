@@ -82,13 +82,8 @@
       <p id="lobby-join-status" class="status"></p>
       <div id="join-position" class="hidden">
         <h3>Where is this phone?</h3>
-        <p class="sub">Tap the corner you're standing at.</p>
-        <div class="corner-grid">
-          <button class="corner" data-corner="TL" type="button">Top<br>Left</button>
-          <button class="corner" data-corner="TR" type="button">Top<br>Right</button>
-          <button class="corner" data-corner="BL" type="button">Bottom<br>Left</button>
-          <button class="corner" data-corner="BR" type="button">Bottom<br>Right</button>
-        </div>
+        <p class="sub" id="corner-sub">Tap the corner you're standing at.</p>
+        <div id="corner-grid" class="corner-grid"></div>
       </div>
       <button id="btn-join" class="big primary" type="button">Join</button>
       <button id="btn-qr-scan" class="big hidden" type="button">📷 Scan QR code</button>
@@ -181,6 +176,7 @@
   </div>
   <div id="call-banner" class="banner"></div>
   <p id="call-detail" class="detail"></p>
+  <button id="btn-cam-rescan" type="button" class="linklike hidden">Rescan court</button>
   <div class="judge-grid">
     <svg id="mini-court" viewBox="0 0 200 300" aria-label="Top-down court with bounce point"></svg>
     <div class="judge-side">
@@ -218,8 +214,10 @@
       <button id="btn-home" class="big">Home</button>
     </div>
   </details>
-  <h3>Call history — tap a call to replay it</h3>
-  <ul id="call-history" class="history"></ul>
+  <div id="call-history-wrap">
+    <h3>Call history — tap a call to replay it</h3>
+    <ul id="call-history" class="history"></ul>
+  </div>
 </section>
 
 <!-- ============ REPLAY ============ -->
@@ -233,14 +231,14 @@
   </div>
 </section>
 
-<script src="js/call.js?v=9"></script>
-<script src="js/scan.js?v=9"></script>
-<script src="js/track.js?v=9"></script>
+<script src="js/call.js?v=10"></script>
+<script src="js/scan.js?v=10"></script>
+<script src="js/track.js?v=10"></script>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script src="js/netsync.js?v=9"></script>
-<script src="js/replay.js?v=9"></script>
-<script src="js/score.js?v=9"></script>
-<script src="js/qr.js?v=9"></script>
-<script src="js/app.js?v=9"></script>
+<script src="js/netsync.js?v=10"></script>
+<script src="js/replay.js?v=10"></script>
+<script src="js/score.js?v=10"></script>
+<script src="js/qr.js?v=10"></script>
+<script src="js/app.js?v=10"></script>
 </body>
 </html>

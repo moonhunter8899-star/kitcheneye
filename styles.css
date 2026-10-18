@@ -212,3 +212,20 @@ button.big.armed { background: #7a2e12; border-color: #a34a1f; }
   border: 2px solid #2a3a5f; background: #16213c; color: #fff; cursor: pointer;
 }
 .seg.active { border-color: #7CFC00; background: #1d3b2a; }
+
+/* Joiner camera-only view: just a status + the last call. No scoring UI. */
+#screen-judge.camera-only .stage,
+#screen-judge.camera-only .scoreboard,
+#screen-judge.camera-only #who-won,
+#screen-judge.camera-only #game-over,
+#screen-judge.camera-only .judge-grid,
+#screen-judge.camera-only .settings,
+#screen-judge.camera-only #call-history-wrap { display: none; }
+#screen-judge.camera-only #judge-status {
+  font-size: 20px; text-align: center; padding: 40px 20px;
+}
+.linklike {
+  background: none; border: none; color: #9fb3d9; font-size: 14px;
+  text-decoration: underline; cursor: pointer; padding: 8px;
+}
+#screen-judge.camera-only #btn-cam-rescan { display: block; margin: 0 auto; }

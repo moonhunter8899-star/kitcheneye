@@ -154,11 +154,13 @@ node --check js/score.js && node /tmp/test-score.js          # scoring
   pulsing landing dot and the IN/OUT banner (the trail rides along in the
   bounce report, ~10 court-coordinate points). The host's camera keeps
   tracking with its video element hidden. Joiners keep their camera view.
-- **Flow**: every phone scans the court from its own position (auto or
-  manual taps — the kitchen/centerline template match disambiguates each
-  phone's orientation, so all share one court coordinate frame), picks the
-  ball color, then waits in the lobby. The host taps **Start match** and
-  all phones judge live.
+- **Flow**: joiners do the minimum — join, tap their corner (Top/Bottom
+  × Left/Right; halves in singles, and a picked half locks for the other
+  phone), scan the court, done. They become silent tracking cameras: no
+  ball screen, no buttons. The host owns everything else — ball color
+  (broadcast to all cameras), arming ("Start point" arms every phone),
+  scoring, and the Hawk-Eye judge display. The host taps **Start match**
+  and all phones judge live.
 - **Arbitration**: each bounce report carries `{x, y, at, size}` in court
   feet on the host clock (joiners sync via 5 ping/pong rounds, median
   offset). The host opens a 300 ms collection window on the first report,

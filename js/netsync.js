@@ -101,6 +101,7 @@ class NetSync {
     this.onMessageCb = null;  // joiner: incoming host message
     this.onHostMsgCb = null;  // host: (peerId, msg)
     this.onServerCb = null;   // cb(up) on signaling-server link state
+    this.matchFormat = 'doubles'; // host: shared with joiners in the welcome
     this.onVideoCb = null;    // host: (peerId, stream) a joiner's monitor feed arrived
     this.onVideoEndCb = null; // host: (peerId) a joiner's monitor feed ended
     this.mediaCall = null;    // joiner: the outgoing MediaConnection to the host
@@ -163,7 +164,7 @@ class NetSync {
       conn.on('error', function () { self._hostDrop(conn.peer); });
       // Prompt the joiner to (re)send hello — its first hello may have
       // arrived before this data handler was attached.
-      try { if (conn.open) conn.send({ t: 'welcome' }); } catch (e) {}
+      try { if (conn.open) conn.send({ t: 'welcome', format: self.matchFormat }); } catch (e) {}
     });
   }
 
@@ -360,6 +361,8 @@ class NetSync {
       // Host is ready for our hello (its data handler may have missed the
       // one we sent on open). Harmless to send twice — the host dedups.
       try { this.send({ t: 'hello', name: this.name }); } catch (e) {}
+      // Also let the app see it (carries the match format).
+      if (this.onMessageCb) { try { this.onMessageCb(msg); } catch (e2) {} }
       return;
     }
     if (this.onMessageCb) { try { this.onMessageCb(msg); } catch (e) {} }

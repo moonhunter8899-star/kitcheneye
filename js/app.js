@@ -23,7 +23,8 @@
     netPeers: [],            // v2 host: [{id, name}] of joined phones
     netDead: false,          // v2 joiner: host vanished mid-match
     camsLocked: false,       // v2 host: director confirmed all camera feeds
-    myCorner: null,          // v2 joiner: declared corner TL|TR|BL|BR
+    myCorner: null,          // v2 joiner: declared corner TL|TR|BL|BR (T|B in singles)
+    takenCorners: [],        // v2 joiner: corners already claimed by other phones
     matchFormat: 'doubles',  // v2 host: 'singles' (2 phones) | 'doubles' (4 phones)
     arb: null,               // v2 host: bounce-arbitration window state
     pendingStart: false,     // v2 joiner: host started while we were scanning
@@ -206,13 +207,26 @@
       if (p) { try { S.net.send({ t: 'campos', x: +p.x.toFixed(1), y: +p.y.toFixed(1) }); } catch (e) {} }
     }
     if (S.netRole === 'host') renderCamWall();
+    // Cross-check: does the scan agree with the tapped corner/half?
     let cornerWarn = null;
     if (S.netRole === 'joiner' && S.myCorner) {
-      const q = cornerQuadrant(cameraCourtPos());
-      if (q && q !== S.myCorner) {
-        cornerWarn = 'Heads up: your scan looks like ' + CORNERS[q].label +
-          ' but you tapped ' + CORNERS[S.myCorner].label + '. If the court looks wrong, rescan.';
+      const p = cameraCourtPos();
+      let ok = true;
+      if (p) {
+        ok = S.myCorner.length === 1
+          ? ((p.y < 22) === (S.myCorner === 'T'))
+          : (cornerQuadrant(p) === S.myCorner);
       }
+      if (!ok) {
+        cornerWarn = 'Heads up: your scan disagrees with ' + CORNERS[S.myCorner].label +
+          ' — if the court looks wrong, rescan.';
+      }
+    }
+    if (S.netRole === 'joiner') {
+      // Join phones are done: position picked, court scanned. The host does
+      // ball color, arming, and scoring — we just track and report.
+      enterCameraOnly(cornerWarn);
+      return;
     }
     enterCalibrate();
     if (cornerWarn) {
@@ -284,6 +298,10 @@
   function selectPreset(name) {
     S.ballPreset = name;
     S.tracker.calibratePreset(name);
+    // v2: the host owns the ball color; joiner cameras follow silently.
+    if (S.netRole === 'host' && S.net) {
+      try { S.net.broadcast({ t: 'ball', preset: name }); } catch (e) {}
+    }
     document.querySelectorAll('#preset-row .preset').forEach(b =>
       b.classList.toggle('active', b.dataset.preset === name));
     setStatus('cal-status', 'Ball color: ' + presetLabel() + '. Hold a ball in view — checking…');
@@ -344,8 +362,29 @@
   }
 
   // ---------- judging ----------
+  // Joiner done-state: a minimal tracking screen. The judge loop runs
+  // (same screen name, so detection + reporting work), but all the
+  // scoring/arming UI is hidden — the host runs the match.
+  function enterCameraOnly(warn) {
+    showScreen('judge');
+    const sj = $('screen-judge');
+    sj.classList.add('camera-only');
+    sj.classList.remove('host-view');
+    S.armed = false;
+    hideWhoWon();
+    try { S.tracker.calibratePreset(S.ballPreset || 'franklin-x40'); } catch (e) {}
+    const label = (S.myCorner && CORNERS[S.myCorner]) ? CORNERS[S.myCorner].label : 'Camera';
+    setStatus('judge-status', '\uD83D\uDCF7 ' + label + ' camera — tracking for the host. You\u2019re all set.' +
+      (warn ? ' ' + warn : ''));
+    $('btn-cam-rescan').classList.remove('hidden');
+    drawMiniCourt(null);
+    if (!S.judging) { S.judging = true; requestAnimationFrame(judgeLoop); }
+  }
+
   function enterJudge() {
     showScreen('judge');
+    $('screen-judge').classList.remove('camera-only');
+    $('btn-cam-rescan').classList.add('hidden');
     // Host = the judge's chair: one big court picture with the ball trail
     // and landing spot (Hawk-Eye style). Its camera keeps tracking with the
     // video element hidden.
@@ -534,6 +573,8 @@
     }
     svg.innerHTML =
       '<rect x="0" y="0" width="200" height="300" fill="#1d3b2a"/>' +
+      '<text x="100" y="16" fill="#9fb3d9" font-size="11" text-anchor="middle">TOP</text>' +
+      '<text x="100" y="292" fill="#9fb3d9" font-size="11" text-anchor="middle">BOTTOM</text>' +
       '<rect x="4" y="4" width="192" height="292" fill="none" stroke="#fff" stroke-width="3"/>' +
       '<line x1="4" y1="' + (15 * sy) + '" x2="196" y2="' + (15 * sy) + '" stroke="#fff" stroke-width="2"/>' +
       '<line x1="4" y1="' + (29 * sy) + '" x2="196" y2="' + (29 * sy) + '" stroke="#fff" stroke-width="2"/>' +
@@ -735,6 +776,10 @@
       const p = S.netPeers.find(x => x.id === peerId);
       if (p && CORNERS[msg.corner]) p.corner = msg.corner;
       S.camsLocked = false; // positions changed -> host re-confirms
+      // Lock it: tell every joiner which corners/halves are taken.
+      try {
+        S.net.broadcast({ t: 'taken', corners: S.netPeers.map(x => x.corner).filter(Boolean) });
+      } catch (e) {}
       renderCamWall();
     } else if (msg.t === 'campos') {
       // Director wall: a phone reports where it stands (court feet).
@@ -748,6 +793,32 @@
   // Joiner: messages from the host.
   function onNetMessage(msg) {
     if (!msg || typeof msg !== 'object') return;
+    if (msg.t === 'welcome' || msg.t === 'fmt') {
+      // Match format (singles = halves, doubles = corners). Re-render the
+      // position picker; a format change resets our pick.
+      if (msg.format === 'singles' || msg.format === 'doubles') {
+        if (S.matchFormat !== msg.format) { S.matchFormat = msg.format; S.myCorner = null; }
+        renderCornerPicker();
+      }
+      return;
+    }
+    if (msg.t === 'taken') {
+      S.takenCorners = Array.isArray(msg.corners) ? msg.corners.filter(c => CORNERS[c]) : [];
+      renderCornerPicker();
+      return;
+    }
+    if (msg.t === 'ball' && msg.preset) {
+      // Host owns the ball color; we just follow.
+      try { S.tracker.calibratePreset(msg.preset); S.ballPreset = msg.preset; } catch (e) {}
+      return;
+    }
+    if (msg.t === 'arm') {
+      // Host runs the point; we arm/disarm on command.
+      S.armed = !!msg.armed;
+      if (S.armed) { try { S.tracker.reset(); } catch (e) {} }
+      hideWhoWon();
+      return;
+    }
     if (msg.t === 'call' && msg.rec) {
       handleCall(msg.rec);
     } else if (msg.t === 'score' && msg.state) {
@@ -769,6 +840,8 @@
       if (S.screen === 'lobby') {
         enterJudge();
         setStatus('judge-status', 'Connected to host — tap "Start point", then serve.');
+      } else if (S.screen === 'judge' && S.netRole === 'joiner') {
+        setStatus('judge-status', '\uD83D\uDCF7 Match live — tracking for the host.');
       } else {
         S.pendingStart = true; // still scanning: start when we reach the lobby
       }
@@ -874,6 +947,7 @@
         setLobbyStatus('Connection problem: ' + (e && e.message ? e.message : e)));
       if (mySeq !== (S.netSeq || 0)) { try { net.close(); } catch (e) {} return; } // user cancelled meanwhile
       S.net = net; S.netRole = 'host'; S.netPeers = []; S.camsLocked = false;
+    net.matchFormat = S.matchFormat;
     setFormat(S.matchFormat); // refresh the format buttons for the fresh lobby
       $('lobby-code').textContent = code;
       // QR join link: point another phone's camera at it and it opens this
@@ -953,10 +1027,8 @@
       $('btn-join').classList.add('hidden');
       $('btn-qr-scan').classList.add('hidden');
       $('join-position').classList.remove('hidden');
-      const sc = $('btn-join-scan');
-      sc.classList.remove('hidden');
-      sc.disabled = !S.myCorner;
-      paintCorners();
+      $('btn-join-scan').classList.remove('hidden');
+      renderCornerPicker();
     } catch (e) {
       // Surface the real reason. "Could not connect to peer" means the room
       // is gone on the server — the host phone left the Room code screen or
@@ -1137,7 +1209,10 @@
     TR: { x: 18, y: -3, label: 'Top Right' },
     BL: { x: 2, y: 47, label: 'Bottom Left' },
     BR: { x: 18, y: 47, label: 'Bottom Right' },
+    T: { x: 10, y: -3, label: 'Top half' },
+    B: { x: 10, y: 47, label: 'Bottom half' },
   };
+  function formatCorners() { return S.matchFormat === 'singles' ? ['T', 'B'] : ['TL', 'TR', 'BL', 'BR']; }
   function cornerQuadrant(p) {
     if (!p) return null;
     return (p.y < 22 ? 'T' : 'B') + (p.x < 10 ? 'L' : 'R');
@@ -1186,6 +1261,14 @@
       '<line x1="8" y1="' + sy(15).toFixed(1) + '" x2="92" y2="' + sy(15).toFixed(1) + '" stroke="#7CFC00" stroke-width="1"/>' +
       '<line x1="8" y1="' + sy(29).toFixed(1) + '" x2="92" y2="' + sy(29).toFixed(1) + '" stroke="#7CFC00" stroke-width="1"/>' +
       '<line x1="50" y1="8" x2="50" y2="' + sy(22).toFixed(1) + '" stroke="#7CFC00" stroke-width="1"/>';
+    // Zone labels so the host can direct phones by name.
+    const lab = (x, y, t) => '<text x="' + x + '" y="' + y + '" fill="#9fb3d9" font-size="7" text-anchor="middle">' + t + '</text>';
+    if (S.matchFormat === 'singles') {
+      s += lab(50, 5, 'TOP HALF') + lab(50, 222, 'BOTTOM HALF');
+    } else {
+      s += lab(28, 5, 'TOP LEFT') + lab(72, 5, 'TOP RIGHT') +
+           lab(28, 222, 'BOTTOM LEFT') + lab(72, 222, 'BOTTOM RIGHT');
+    }
     const dot = (x, y, color, label) => {
       const cx = Math.max(5, Math.min(95, sx(x))).toFixed(1);
       const cy = Math.max(5, Math.min(219, sy(y))).toFixed(1);
@@ -1223,11 +1306,32 @@
     }
   }
 
-  function paintCorners() {
-    document.querySelectorAll('#join-position .corner').forEach(b => {
-      b.classList.toggle('active', b.dataset.corner === S.myCorner);
+  function renderCornerPicker() {
+    const grid = $('corner-grid');
+    if (!grid) return;
+    const corners = formatCorners();
+    $('corner-sub').textContent = S.matchFormat === 'singles'
+      ? 'Tap the half you\u2019re covering — it locks so the other phone can\u2019t take it.'
+      : 'Tap the corner you\u2019re standing at.';
+    grid.innerHTML = '';
+    grid.style.gridTemplateColumns = corners.length === 2 ? '1fr' : '1fr 1fr';
+    corners.forEach(c => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'corner' + (S.myCorner === c ? ' active' : '');
+      b.dataset.corner = c;
+      b.innerHTML = CORNERS[c].label.replace(' ', '<br>');
+      if (S.takenCorners.includes(c) && S.myCorner !== c) {
+        b.disabled = true;
+        b.innerHTML += '<br><small>taken</small>';
+      }
+      b.addEventListener('click', () => pickCorner(c));
+      grid.appendChild(b);
     });
+    const sc = $('btn-join-scan');
+    if (sc) sc.disabled = !S.myCorner;
   }
+  function paintCorners() { renderCornerPicker(); }
 
   function pickCorner(corner) {
     if (!CORNERS[corner]) return;
@@ -1245,6 +1349,10 @@
     S.matchFormat = f;
     S.scorePrefs.mode = f; // the match score follows the format
     saveScore();
+    if (S.netRole === 'host' && S.net) {
+      S.net.matchFormat = f;
+      try { S.net.broadcast({ t: 'fmt', format: f }); } catch (e) {}
+    }
     renderScoreboard();
     $('btn-fmt-singles').classList.toggle('active', f === 'singles');
     $('btn-fmt-doubles').classList.toggle('active', f === 'doubles');
@@ -1374,9 +1482,6 @@
     });
     $('btn-join').addEventListener('click', joinMatch);
     $('btn-qr-scan').addEventListener('click', openQrScanner);
-    document.querySelectorAll('#join-position .corner').forEach(b => {
-      b.addEventListener('click', () => pickCorner(b.dataset.corner));
-    });
     $('btn-qr-cancel').addEventListener('click', () => { closeQrScanner(); showLobby('join'); });
     $('btn-join-scan').addEventListener('click', () => { S.netDead = false; startScanFlow(); });
     $('btn-lobby-back2').addEventListener('click', () => { netClose(); showLobby('choose'); });
@@ -1463,6 +1568,11 @@
     $('speak-score').checked = S.scorePrefs.speech;
     renderScoreboard();
 
+    $('btn-cam-rescan').addEventListener('click', () => {
+      S.armed = false;
+      S.H = null; S.pendingScan = null; S.tapping = false; S.manualCorners = null;
+      startScanFlow();
+    });
     $('btn-arm').addEventListener('click', () => {
       if (S.score && S.score.over) return; // game over: start a new game first
       if (!S.armed) {
@@ -1476,6 +1586,10 @@
         S.armed = false;
         showWhoWon();
         setStatus('judge-status', 'Point over — who won it?');
+      }
+      // v2: joiner cameras arm/disarm on the host's command.
+      if (S.netRole === 'host' && S.net) {
+        try { S.net.broadcast({ t: 'arm', armed: S.armed }); } catch (e) {}
       }
       updateArmUI();
     });
