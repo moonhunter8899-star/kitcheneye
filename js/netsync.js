@@ -101,6 +101,9 @@ class NetSync {
     this.onMessageCb = null;  // joiner: incoming host message
     this.onHostMsgCb = null;  // host: (peerId, msg)
     this.onServerCb = null;   // cb(up) on signaling-server link state
+    this.onVideoCb = null;    // host: (peerId, stream) a joiner's monitor feed arrived
+    this.onVideoEndCb = null; // host: (peerId) a joiner's monitor feed ended
+    this.mediaCall = null;    // joiner: the outgoing MediaConnection to the host
     this._pingCb = null;
   }
 
@@ -142,6 +145,7 @@ class NetSync {
         if (self.onServerCb) { try { self.onServerCb(true); } catch (e2) {} }
       });
       peer.on('connection', function (conn) { self._hostAccept(conn); });
+      peer.on('call', function (call) { self._hostAcceptCall(call); });
       peer.on('error', function (e) { self._err(onErr, e); });
       peer.on('disconnected', function () {
         if (self.onServerCb) { try { self.onServerCb(false); } catch (e2) {} }
@@ -161,6 +165,61 @@ class NetSync {
       // arrived before this data handler was attached.
       try { if (conn.open) conn.send({ t: 'welcome' }); } catch (e) {}
     });
+  }
+
+  /** Host: accept an incoming monitor-video call (receive-only, no local stream). */
+  _hostAcceptCall(call) {
+    var self = this;
+    try { call.answer(); } catch (e) { return; } // no stream -> recvonly
+    call.on('stream', function (stream) {
+      if (self.onVideoCb) { try { self.onVideoCb(call.peer, stream); } catch (e2) {} }
+    });
+    var ended = function () {
+      if (self.onVideoEndCb) { try { self.onVideoEndCb(call.peer); } catch (e2) {} }
+    };
+    call.on('close', ended);
+    call.on('error', function () {});
+  }
+
+  /** cb(peerId, stream) — a joiner's monitor feed arrived. */
+  onVideo(cb) { this.onVideoCb = cb; }
+  /** cb(peerId) — a joiner's monitor feed ended. */
+  onVideoEnd(cb) { this.onVideoEndCb = cb; }
+
+  /**
+   * Joiner: publish a (low-res) monitor stream to the host so the host can
+   * see this phone's camera. Replaces the video track if a call is already up.
+   */
+  joinerCallHost(monitorStream) {
+    if (this.role !== 'joiner' || !this.peer || this.peer.destroyed || !monitorStream) return;
+    var self = this;
+    try {
+      var track = monitorStream.getVideoTracks()[0];
+      if (this.mediaCall && this.mediaCall.open && track) {
+        var pc = this.mediaCall.peerConnection;
+        var sender = pc && pc.getSenders().find(function (s) { return s.track && s.track.kind === 'video'; });
+        if (sender) { sender.replaceTrack(track); return; }
+      }
+      try { if (this.mediaCall) this.mediaCall.close(); } catch (e) {}
+      this.mediaCall = this.peer.call(PEER_PREFIX + this.code, monitorStream);
+      if (this.mediaCall) {
+        // Keep the monitor feed light: small thumbnail, few fps is plenty.
+        this.mediaCall.on('stream', function () {});
+        var iv = setInterval(function () {
+          var pc2 = self.mediaCall && self.mediaCall.peerConnection;
+          var s2 = pc2 && pc2.getSenders().find(function (s) { return s.track && s.track.kind === 'video'; });
+          if (s2) {
+            try {
+              var par = s2.getParameters();
+              par.encodings = [{ maxBitrate: 350000, maxFramerate: 10 }];
+              s2.setParameters(par);
+            } catch (e) {}
+            clearInterval(iv);
+          }
+          if (!self.mediaCall || !self.mediaCall.open) clearInterval(iv);
+        }, 1000);
+      }
+    } catch (e) {}
   }
 
   _hostData(peerId, msg) {
@@ -373,6 +432,8 @@ class NetSync {
       else if (this.conn) this.conn.send({ t: 'bye' });
     } catch (e) {}
     try { if (this.conn) this.conn.close(); } catch (e) {}
+    try { if (this.mediaCall) this.mediaCall.close(); } catch (e) {}
+    this.mediaCall = null;
     this.eachPeer(function (id, p) { try { p.conn.close(); } catch (e2) {} });
     try { if (this.peer) this.peer.destroy(); } catch (e) {}
     this.peers.clear();
@@ -383,6 +444,8 @@ class NetSync {
     this._pingCb = null;
     this._errSilenced = false;
     this.onServerCb = null;
+    this.onVideoCb = null;
+    this.onVideoEndCb = null;
   }
 }
 

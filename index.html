@@ -44,9 +44,23 @@
       <p class="sub">Other phones: point their camera at the code above — it opens this app right in the room. Or tap <b>Multi-phone match → Join a match</b> and type the code.</p>
       <h3>Phones in the match</h3>
       <ul id="lobby-peers" class="peers"></ul>
+      <h3>Cameras <span class="sub">— check each phone sees the court</span></h3>
+      <div class="cam-wall">
+        <div class="cam-tile">
+          <video id="tile-self-video" muted playsinline></video>
+          <span class="cam-label" id="tile-self-label">This phone</span>
+        </div>
+        <div id="cam-tiles" class="cam-tiles"></div>
+      </div>
+      <div class="pos-row">
+        <svg id="pos-diagram" viewBox="0 0 100 224" class="pos-diagram" aria-label="Phone positions"></svg>
+        <p class="sub">Dots show where each phone stands (N up). Direct any phone that's off its mark, then lock in.</p>
+      </div>
       <p id="lobby-status" class="status"></p>
       <button id="btn-host-scan" class="big" type="button">1 · Scan my court</button>
-      <button id="btn-lobby-start" class="big primary" type="button">2 · Start match</button>
+      <button id="btn-lock-cams" class="big hidden" type="button">2 · Cameras look good — lock in</button>
+      <button id="btn-lobby-start" class="big primary" type="button">3 · Start match</button>
+      <p id="lock-hint" class="status"></p>
       <button id="btn-lobby-cancel" class="big" type="button">Cancel</button>
     </div>
     <div id="lobby-join" class="hidden">
@@ -61,14 +75,29 @@
       </label>
       <p id="lobby-join-status" class="status"></p>
       <button id="btn-join" class="big primary" type="button">Join</button>
+      <button id="btn-qr-scan" class="big hidden" type="button">📷 Scan QR code</button>
       <button id="btn-join-scan" class="big primary hidden" type="button">Scan my court</button>
       <button id="btn-lobby-back2" class="big" type="button">Back</button>
+      <p class="sub">Fastest: tap <b>Scan QR code</b> and point at the host phone's screen. Or type the 6-character code.</p>
     </div>
     <div id="lobby-waiting" class="hidden">
       <h2>Ready</h2>
       <p id="lobby-waiting-status" class="status">Connected to host. Waiting for host to start…</p>
       <button id="btn-lobby-leave" class="big" type="button">Leave</button>
     </div>
+  </div>
+</section>
+
+<!-- ============ QR SCANNER (join) ============ -->
+<section id="screen-scanqr" class="screen hidden">
+  <h2>Scan the host's QR</h2>
+  <div class="stage qr-stage">
+    <video id="qr-video" playsinline muted></video>
+    <div class="viewfinder"></div>
+  </div>
+  <p id="qr-status" class="status">Point at the QR code on the host phone…</p>
+  <div class="controls">
+    <button id="btn-qr-cancel" class="big" type="button">Cancel</button>
   </div>
 </section>
 
@@ -188,14 +217,14 @@
   </div>
 </section>
 
-<script src="js/call.js?v=6"></script>
-<script src="js/scan.js?v=6"></script>
-<script src="js/track.js?v=6"></script>
+<script src="js/call.js?v=7"></script>
+<script src="js/scan.js?v=7"></script>
+<script src="js/track.js?v=7"></script>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script src="js/netsync.js?v=6"></script>
-<script src="js/replay.js?v=6"></script>
-<script src="js/score.js?v=6"></script>
-<script src="js/qr.js?v=6"></script>
-<script src="js/app.js?v=6"></script>
+<script src="js/netsync.js?v=7"></script>
+<script src="js/replay.js?v=7"></script>
+<script src="js/score.js?v=7"></script>
+<script src="js/qr.js?v=7"></script>
+<script src="js/app.js?v=7"></script>
 </body>
 </html>

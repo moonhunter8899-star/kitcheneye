@@ -22,6 +22,7 @@
     netRole: null,           // v2: 'host' | 'joiner'
     netPeers: [],            // v2 host: [{id, name}] of joined phones
     netDead: false,          // v2 joiner: host vanished mid-match
+    camsLocked: false,       // v2 host: director confirmed all camera feeds
     arb: null,               // v2 host: bounce-arbitration window state
     pendingStart: false,     // v2 joiner: host started while we were scanning
     lastWhoWonAt: 0,         // v2 host: debounce cross-phone who-won taps
@@ -40,7 +41,7 @@
 
   function showScreen(name) {
     S.screen = name;
-    ['home', 'camera', 'calibrate', 'judge', 'replay', 'lobby'].forEach(n => {
+    ['home', 'camera', 'calibrate', 'judge', 'replay', 'lobby', 'scanqr'].forEach(n => {
       const el = $('screen-' + n);
       if (el) el.classList.toggle('hidden', n !== name);
     });
@@ -103,6 +104,8 @@
         return false;
       }
       sizeOverlay();
+      if (S.netRole === 'joiner') startMonitorStream();
+      if (S.netRole === 'host') renderCamWall();
       return true;
     } catch (e) {
       console.warn('camera failed', e);
@@ -193,6 +196,14 @@
     S.H = res.H;
     persistCourt();
     $('scan-confirm').classList.add('hidden');
+    // v2: tell the host where this phone stands (director wall), and make
+    // sure the monitor feed is up.
+    if (S.netRole === 'joiner' && S.net) {
+      startMonitorStream();
+      const p = cameraCourtPos();
+      if (p) { try { S.net.send({ t: 'campos', x: +p.x.toFixed(1), y: +p.y.toFixed(1) }); } catch (e) {} }
+    }
+    if (S.netRole === 'host') renderCamWall();
     enterCalibrate();
   }
 
@@ -691,6 +702,12 @@
       });
     } else if (msg.t === 'who-won') {
       hostWhoWon(msg.team);
+    } else if (msg.t === 'campos') {
+      // Director wall: a phone reports where it stands (court feet).
+      const p = S.netPeers.find(x => x.id === peerId);
+      if (p && isFinite(+msg.x) && isFinite(+msg.y)) p.pos = { x: +msg.x, y: +msg.y };
+      S.camsLocked = false; // positions changed -> host re-confirms
+      renderCamWall();
     }
   }
 
@@ -769,7 +786,9 @@
   function netClose() {
     S.netSeq = (S.netSeq || 0) + 1; // invalidates in-flight host/join attempts
     try { if (S.net) S.net.close(); } catch (e) {}
-    S.net = null; S.netRole = null; S.netPeers = [];
+    S.net = null; S.netRole = null; S.netPeers = []; S.camsLocked = false;
+    stopMonitorStream();
+    closeQrScanner();
     if (S.arb && S.arb.timer) clearTimeout(S.arb.timer);
     S.arb = null; S.pendingStart = false;
   }
@@ -814,7 +833,7 @@
       const code = await net.hostRoom((e) =>
         setLobbyStatus('Connection problem: ' + (e && e.message ? e.message : e)));
       if (mySeq !== (S.netSeq || 0)) { try { net.close(); } catch (e) {} return; } // user cancelled meanwhile
-      S.net = net; S.netRole = 'host'; S.netPeers = [];
+      S.net = net; S.netRole = 'host'; S.netPeers = []; S.camsLocked = false;
       $('lobby-code').textContent = code;
       // QR join link: point another phone's camera at it and it opens this
       // app straight into the room. Zero dependencies — drawn on-device.
@@ -829,13 +848,27 @@
       } catch (e) { console.warn('qr draw failed', e); }
       net.onJoin((id, name) => {
         if (!S.netPeers.some(p => p.id === id)) S.netPeers.push({ id: id, name: name });
+        S.camsLocked = false; // new phone -> host re-confirms the wall
         renderLobbyPeers();
+        renderCamWall();
       });
       net.onLeave((id) => {
         S.netPeers = S.netPeers.filter(p => p.id !== id);
+        S.camsLocked = false;
         renderLobbyPeers();
+        renderCamWall();
       });
       net.onHostMessage(onHostMessage);
+      net.onVideo((id, stream) => {
+        const p = S.netPeers.find(x => x.id === id);
+        if (p) p.stream = stream;
+        renderCamWall();
+      });
+      net.onVideoEnd((id) => {
+        const p = S.netPeers.find(x => x.id === id);
+        if (p) p.stream = null;
+        renderCamWall();
+      });
       net.onServer((up) => {
         if (S.net !== net || S.netRole !== 'host') return;
         // The room only exists while the host holds its server link —
@@ -845,6 +878,7 @@
           : 'Lost the match server — reconnecting… keep this screen open and the phone awake.');
       });
       renderLobbyPeers();
+      renderCamWall();
       setLobbyStatus('Waiting for phones…');
     } catch (e) {
       setLobbyStatus('Could not create the room. Check your internet and try again.');
@@ -892,10 +926,236 @@
     }
   }
 
+  // ---------- in-app QR scanner (fast join) ----------
+  // jsQR (MIT, via CDN — same pattern as PeerJS) is lazy-loaded the first
+  // time the join view opens. If it can't load, the Scan button stays hidden
+  // and typing the code still works.
+  let qrLibState = 'idle'; // idle | loading | ready | failed
+  function prepQrScanButton() {
+    const btn = $('btn-qr-scan');
+    if (!btn) return;
+    if (typeof jsQR !== 'undefined' || qrLibState === 'ready') {
+      qrLibState = 'ready';
+      if (S.screen === 'lobby') btn.classList.remove('hidden');
+      return;
+    }
+    if (qrLibState === 'loading' || qrLibState === 'failed') return;
+    qrLibState = 'loading';
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+    s.onload = () => {
+      qrLibState = 'ready';
+      const b = $('btn-qr-scan');
+      if (b && S.screen === 'lobby') b.classList.remove('hidden');
+    };
+    s.onerror = () => { qrLibState = 'failed'; };
+    document.head.appendChild(s);
+  }
+
+  let qrStream = null, qrTimer = 0;
+  const qrWork = document.createElement('canvas');
+
+  async function openQrScanner() {
+    closeQrScanner();
+    showScreen('scanqr');
+    setStatus('qr-status', 'Point at the QR code on the host phone…');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      qrStream = stream;
+      const v = $('qr-video');
+      v.srcObject = stream;
+      await v.play();
+      qrTimer = setTimeout(qrScanTick, 300);
+    } catch (e) {
+      setStatus('qr-status', 'Camera unavailable — type the 6-character code instead.');
+    }
+  }
+
+  function qrScanTick() {
+    qrTimer = 0;
+    if (S.screen !== 'scanqr') return; // user left the scanner
+    try {
+      const v = $('qr-video');
+      if (v && v.videoWidth && typeof jsQR !== 'undefined') {
+        const w = 640, h = Math.max(2, Math.round(640 * v.videoHeight / v.videoWidth));
+        qrWork.width = w; qrWork.height = h;
+        const ctx = qrWork.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(v, 0, 0, w, h);
+        const res = jsQR(ctx.getImageData(0, 0, w, h).data, w, h);
+        if (res && res.data) {
+          const m = /[?&]r=([A-Za-z0-9]{6})(?:[^A-Za-z0-9]|$)/.exec(res.data);
+          if (m) {
+            const code = m[1].toUpperCase();
+            closeQrScanner();
+            showLobby('join');
+            prepQrScanButton();
+            $('join-code').value = code;
+            setJoinStatus('Joining room ' + code + '…');
+            setTimeout(joinMatch, 300);
+            return;
+          }
+          setStatus('qr-status', 'That QR is not a KitchenEye invite — point at the host phone\u2019s code.');
+        }
+      }
+    } catch (e) { /* keep scanning */ }
+    qrTimer = setTimeout(qrScanTick, 250);
+  }
+
+  function closeQrScanner() {
+    if (qrTimer) { clearTimeout(qrTimer); qrTimer = 0; }
+    if (qrStream) { try { qrStream.getTracks().forEach(t => t.stop()); } catch (e) {} qrStream = null; }
+    const v = $('qr-video');
+    if (v) { try { v.pause(); } catch (e) {} v.srcObject = null; }
+  }
+
+  // ---------- director wall: host sees every phone's camera ----------
+  // Joiners publish a tiny monitor feed (320x180 @ ~8fps via canvas
+  // captureStream) to the host. The host lobby shows a 2x2 wall plus a mini
+  // court diagram with each phone's position, then locks in before Start.
+  let monTimer = 0;
+  const monCanvas = document.createElement('canvas');
+  let monStream = null;
+
+  function activeVideoEl() {
+    const jv = $('judge-video');
+    if (jv && !jv.paused && jv.videoWidth) return jv;
+    return S.video;
+  }
+
+  function startMonitorStream() {
+    if (S.netRole !== 'joiner' || !S.net || monTimer) return;
+    monCanvas.width = 320; monCanvas.height = 180;
+    const ctx = monCanvas.getContext('2d');
+    monTimer = setInterval(() => {
+      try {
+        const v = activeVideoEl();
+        if (v && v.videoWidth) ctx.drawImage(v, 0, 0, 320, 180);
+      } catch (e) {}
+    }, 250);
+    try {
+      monStream = monCanvas.captureStream(8);
+      S.net.joinerCallHost(monStream);
+    } catch (e) { stopMonitorStream(); }
+  }
+
+  function stopMonitorStream() {
+    if (monTimer) { clearInterval(monTimer); monTimer = 0; }
+    if (monStream) { try { monStream.getTracks().forEach(t => t.stop()); } catch (e) {} monStream = null; }
+  }
+
+  /** Where this phone stands, in court feet (from the scan homography). */
+  function cameraCourtPos() {
+    try {
+      if (!S.H || !S.video || !S.video.videoWidth || !S.detScale) return null;
+      const dx = (S.video.videoWidth / 2) / S.detScale;
+      const dy = (S.video.videoHeight * 0.96) / S.detScale;
+      const [X, Y] = applyHomography(S.H, dx, dy);
+      if (!isFinite(X) || !isFinite(Y)) return null;
+      return { x: X, y: Y };
+    } catch (e) { return null; }
+  }
+
+  function posLabel(p) {
+    if (!p) return 'position unknown';
+    if (p.y < -0.5) return 'behind N baseline';
+    if (p.y > 44.5) return 'behind S baseline';
+    if (p.x < -0.5 || p.x > 20.5) return 'sideline';
+    return 'on the court';
+  }
+
+  const TILE_COLORS = ['#7CFC00', '#ffd24d', '#6ec6ff'];
+
+  function renderCamWall() {
+    if (S.netRole !== 'host' || !$('cam-tiles')) return;
+    // Self tile: the host's own camera.
+    const selfV = $('tile-self-video');
+    if (selfV) {
+      if (S.stream && selfV.srcObject !== S.stream) {
+        try { selfV.srcObject = S.stream; selfV.play(); } catch (e) {}
+      } else if (!S.stream) { selfV.srcObject = null; }
+    }
+    const selfPos = cameraCourtPos();
+    $('tile-self-label').textContent = 'This phone' + (selfPos ? ' · ' + posLabel(selfPos) : '');
+    // Peer tiles.
+    const wall = $('cam-tiles');
+    wall.innerHTML = '';
+    S.netPeers.forEach((p, i) => {
+      const d = document.createElement('div');
+      d.className = 'cam-tile';
+      const v = document.createElement('video');
+      v.muted = true; v.playsInline = true; v.autoplay = true;
+      if (p.stream) {
+        v.srcObject = p.stream;
+        try { v.play(); } catch (e) {}
+      }
+      const lab = document.createElement('span');
+      lab.className = 'cam-label';
+      lab.style.borderColor = TILE_COLORS[i % TILE_COLORS.length];
+      lab.textContent = p.name + ' · ' + posLabel(p.pos) + (p.stream ? '' : ' (no video yet)');
+      d.appendChild(v); d.appendChild(lab);
+      wall.appendChild(d);
+    });
+    renderPosDiagram();
+    updateStartButton();
+  }
+
+  function renderPosDiagram() {
+    const svg = $('pos-diagram');
+    if (!svg) return;
+    const sx = x => 8 + (x / 20) * 84;
+    const sy = y => 8 + (y / 44) * 204;
+    let s = '<rect x="8" y="8" width="84" height="204" fill="none" stroke="#7CFC00" stroke-width="1.5"/>' +
+      '<line x1="8" y1="' + sy(15).toFixed(1) + '" x2="92" y2="' + sy(15).toFixed(1) + '" stroke="#7CFC00" stroke-width="1"/>' +
+      '<line x1="8" y1="' + sy(29).toFixed(1) + '" x2="92" y2="' + sy(29).toFixed(1) + '" stroke="#7CFC00" stroke-width="1"/>' +
+      '<line x1="50" y1="8" x2="50" y2="' + sy(22).toFixed(1) + '" stroke="#7CFC00" stroke-width="1"/>';
+    const dot = (x, y, color, label) => {
+      const cx = Math.max(5, Math.min(95, sx(x))).toFixed(1);
+      const cy = Math.max(5, Math.min(219, sy(y))).toFixed(1);
+      return '<circle cx="' + cx + '" cy="' + cy + '" r="5" fill="' + color + '"/>' +
+        '<text x="' + (+cx + 8) + '" y="' + (+cy + 4) + '" fill="#fff" font-size="9">' + label + '</text>';
+    };
+    const selfPos = cameraCourtPos();
+    if (selfPos) s += dot(selfPos.x, selfPos.y, '#ffffff', 'me');
+    S.netPeers.forEach((p, i) => {
+      if (p.pos) s += dot(p.pos.x, p.pos.y, TILE_COLORS[i % TILE_COLORS.length], String(p.name).slice(0, 8));
+    });
+    svg.innerHTML = s;
+  }
+
+  function updateStartButton() {
+    const startBtn = $('btn-lobby-start');
+    if (!startBtn || S.netRole !== 'host') return;
+    const needScan = !S.H;
+    const needLock = S.netPeers.length > 0 && !S.camsLocked;
+    startBtn.disabled = !!(needScan || needLock);
+    const lockBtn = $('btn-lock-cams');
+    if (lockBtn) {
+      lockBtn.classList.toggle('hidden', S.netPeers.length === 0);
+      lockBtn.disabled = !!S.camsLocked;
+      lockBtn.textContent = S.camsLocked ? '✓ Cameras locked in' : '2 · Cameras look good — lock in';
+    }
+    const hint = $('lock-hint');
+    if (hint) {
+      hint.textContent = needScan ? 'Step 1: scan your court, then lock in the cameras.'
+        : needLock ? 'Check each camera feed above, then lock in to enable Start.'
+        : (S.netPeers.length ? 'All set — start the match when ready.' : '');
+    }
+  }
+
+  function lockCameras() {
+    S.camsLocked = true;
+    setLobbyStatus('Cameras locked in — ' + (S.netPeers.length + 1) + ' phones ready.');
+    updateStartButton();
+  }
+
   function hostStartMatch() {
     if (S.netRole !== 'host' || !S.net) return;
     if (!S.H) {
       setLobbyStatus('Scan your court first (step 1 above), then start the match.');
+      return;
+    }
+    if (S.netPeers.length && !S.camsLocked) {
+      setLobbyStatus('Lock in the cameras first — check each feed above, then tap "Cameras look good".');
       return;
     }
     newScore(); // fresh game; the host owns the score
@@ -1000,12 +1260,16 @@
       $('btn-join').classList.remove('hidden');
       $('btn-join-scan').classList.add('hidden');
       showLobby('join');
+      prepQrScanButton();
     });
     $('btn-join').addEventListener('click', joinMatch);
+    $('btn-qr-scan').addEventListener('click', openQrScanner);
+    $('btn-qr-cancel').addEventListener('click', () => { closeQrScanner(); showLobby('join'); });
     $('btn-join-scan').addEventListener('click', () => { S.netDead = false; startScanFlow(); });
     $('btn-lobby-back2').addEventListener('click', () => { netClose(); showLobby('choose'); });
     $('btn-host-scan').addEventListener('click', () => { S.netDead = false; startScanFlow(); });
     $('btn-lobby-start').addEventListener('click', hostStartMatch);
+    $('btn-lock-cams').addEventListener('click', lockCameras);
     $('btn-lobby-cancel').addEventListener('click', () => { netClose(); showScreen('home'); });
     $('btn-lobby-leave').addEventListener('click', () => { netClose(); showScreen('home'); });
     $('btn-net-home').addEventListener('click', goHome);
@@ -1136,6 +1400,7 @@
         const code = m[1].toUpperCase();
         if (window.history && history.replaceState) history.replaceState(null, '', location.pathname);
         showLobby('join');
+        prepQrScanButton();
         $('join-code').value = code;
         setJoinStatus('Joining room ' + code + '…');
         setTimeout(joinMatch, 500);

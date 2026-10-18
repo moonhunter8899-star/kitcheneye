@@ -126,14 +126,23 @@ node --check js/score.js && node /tmp/test-score.js          # scoring
 
 - **Pairing** (`js/netsync.js`): one phone taps **Multi-phone match →
   Host a match** and shows a QR code plus the 6-character code. The other
-  phones just point their regular camera app at the QR — it opens KitchenEye
-  with the room pre-filled and joins automatically (`?r=CODE`; the link is
-  cleaned from the URL after reading). Typing the code manually still works.
-  Star topology over WebRTC data channels via PeerJS (the single CDN
-  dependency; if it can't load, the multi-phone buttons hide and solo mode
-  works untouched). The QR itself is drawn on-device by a tiny dependency-free
-  encoder (`js/qr.js`, byte mode, ECC-L) — no network call, works offline.
-  Video never leaves the phones — only tiny JSON messages travel.
+  phones tap **Join a match → 📷 Scan QR code** and point at the host's
+  screen — the room joins automatically (in-app scanner via lazy-loaded
+  jsQR; typing the code manually still works, as does the iPhone Camera app
+  via `?r=CODE` links). Star topology over WebRTC via PeerJS (the single
+  required CDN dependency; if it can't load, the multi-phone buttons hide
+  and solo mode works untouched). The QR itself is drawn on-device by a tiny
+  dependency-free encoder (`js/qr.js`, byte mode, ECC-L) — no network call,
+  works offline. Game messages are tiny JSON; the only video that travels
+  is the low-res director-wall monitor feed (below).
+- **Director wall**: while setting up, each joiner publishes a tiny monitor
+  feed (320×180 @ ~8 fps via canvas `captureStream`, bitrate-capped) to the
+  host, plus its court position (computed from its scan homography). The
+  host lobby shows a 2×2 camera wall — its own camera plus every joiner —
+  and a mini court diagram with a dot per phone, so the host can direct
+  each phone to its mark. The host taps **Cameras look good — lock in**,
+  which enables **Start match** (any phone joining, leaving, or re-scanning
+  unlocks it again for re-confirmation).
 - **Flow**: every phone scans the court from its own position (auto or
   manual taps — the kitchen/centerline template match disambiguates each
   phone's orientation, so all share one court coordinate frame), picks the
