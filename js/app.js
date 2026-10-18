@@ -1127,7 +1127,9 @@
     if (!startBtn || S.netRole !== 'host') return;
     const needScan = !S.H;
     const needLock = S.netPeers.length > 0 && !S.camsLocked;
-    startBtn.disabled = !!(needScan || needLock);
+    // Keep Start tappable even when not ready: tapping it explains what's
+    // missing (via hostStartMatch) instead of silently doing nothing.
+    startBtn.disabled = false;
     const lockBtn = $('btn-lock-cams');
     if (lockBtn) {
       lockBtn.classList.toggle('hidden', S.netPeers.length === 0);
