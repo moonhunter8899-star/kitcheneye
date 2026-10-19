@@ -381,15 +381,40 @@
     const label = (S.myCorner && CORNERS[S.myCorner]) ? CORNERS[S.myCorner].label : 'Camera';
     setStatus('judge-status', '\uD83D\uDCF7 ' + label + ' camera — tracking for the host. You\u2019re all set.' +
       (warn ? ' ' + warn : ''));
-    $('btn-cam-rescan').classList.remove('hidden');
+    $('cam-only-links').classList.remove('hidden');
+    renderJoinCourt();
     drawMiniCourt(null);
     if (!S.judging) { S.judging = true; requestAnimationFrame(judgeLoop); }
+  }
+
+  // Join phone's mini board: the court, YOUR zone lit up, and the last
+  // landing spot — so when someone says "it was out" you can point at
+  // exactly where it touched and whether it was in.
+  function renderJoinCourt() {
+    const svg = $('join-court');
+    if (!svg || S.netRole !== 'joiner') return;
+    const zones = zoneDefs();
+    let s = courtLinesSVG();
+    const z = zones.find(z => z.code === S.myCorner);
+    if (z) {
+      s += zoneRectSVG(z, 'fill="#7CFC00" opacity="0.25" stroke="#7CFC00" stroke-width="2" rx="4"');
+    }
+    const rec = S.calls[0];
+    if (rec && typeof rec.x === 'number' && typeof rec.y === 'number') {
+      const cx = Math.max(20, Math.min(120, 20 + (rec.x / 20) * 100)).toFixed(1);
+      const cy = Math.max(16, Math.min(208, 16 + (rec.y / 44) * 192)).toFixed(1);
+      const col = rec.call === 'IN' ? '#7CFC00' : '#ff5a5a';
+      s += '<circle cx="' + cx + '" cy="' + cy + '" r="12" fill="' + col + '" opacity="0.3">' +
+        '<animate attributeName="r" values="8;13;8" dur="1.6s" repeatCount="indefinite"/></circle>' +
+        '<circle cx="' + cx + '" cy="' + cy + '" r="6" fill="' + col + '" stroke="#fff" stroke-width="1.5"/>';
+    }
+    svg.innerHTML = s;
   }
 
   function enterJudge() {
     showScreen('judge');
     $('screen-judge').classList.remove('camera-only');
-    $('btn-cam-rescan').classList.add('hidden');
+    $('cam-only-links').classList.add('hidden');
     // Host = the judge's chair: one big court picture with the ball trail
     // and landing spot (Hawk-Eye style). Its camera keeps tracking with the
     // video element hidden.
@@ -481,6 +506,7 @@
   function handleCall(rec) {
     const res = { call: rec.call, distIn: rec.distIn, line: rec.line, inside: rec.inside };
     showCall(res, rec.x, rec.y, rec.trail);
+    if (S.netRole === 'joiner' && S.screen === 'judge') renderJoinCourt();
     callSound(rec.call);
     S.calls.unshift(rec);
     if (S.calls.length > 100) S.calls.length = 100;
@@ -777,6 +803,9 @@
       });
     } else if (msg.t === 'who-won') {
       hostWhoWon(msg.team);
+    } else if (msg.t === 'rename') {
+      const p = S.netPeers.find(x => x.id === peerId);
+      if (p) { p.name = String(msg.name || 'Phone').slice(0, 24); renderLobby(); }
     } else if (msg.t === 'corner') {
       const p = S.netPeers.find(x => x.id === peerId);
       if (p && CORNERS[msg.corner]) p.corner = msg.corner;
@@ -808,6 +837,12 @@
         if (S.myCorner && S.takenCorners.includes(S.myCorner)) S.myCorner = null;
       }
       renderCornerPicker();
+      if (S.screen === 'judge' && S.netRole === 'joiner') {
+        // Format may have flipped under us (singles<->doubles): refresh the
+        // mini board; a stale zone clears so it can't mislead.
+        if (S.myCorner && !zoneDefs().some(z => z.code === S.myCorner)) S.myCorner = null;
+        renderJoinCourt();
+      }
       return;
     }
     if (msg.t === 'taken') {
@@ -1604,6 +1639,22 @@
       S.armed = false;
       S.H = null; S.pendingScan = null; S.tapping = false; S.manualCorners = null;
       startScanFlow();
+    });
+    $('btn-cam-changezone').addEventListener('click', () => {
+      // Back to the zone picker (e.g. host switched singles/doubles).
+      S.myCorner = null;
+      renderCornerPicker();
+      showLobby('join');
+      $('join-position').classList.remove('hidden');
+      $('btn-join-scan').classList.remove('hidden');
+      $('btn-join-scan').disabled = true;
+    });
+    // Renaming the phone mid-match: push it to the host live.
+    $('join-name').addEventListener('change', () => {
+      if (S.netRole === 'joiner' && S.net && !S.netDead) {
+        const nm = (($('join-name').value || '').trim() || 'Phone').slice(0, 24);
+        try { S.net.send({ t: 'rename', name: nm }); } catch (e) {}
+      }
     });
     $('btn-arm').addEventListener('click', () => {
       if (S.score && S.score.over) return; // game over: start a new game first

@@ -240,4 +240,12 @@ button.big.armed { background: #7a2e12; border-color: #a34a1f; }
   background: none; border: none; color: #9fb3d9; font-size: 14px;
   text-decoration: underline; cursor: pointer; padding: 8px;
 }
-#screen-judge.camera-only #btn-cam-rescan { display: block; margin: 0 auto; }
+
+/* Join-phone mini court: your zone + the last landing spot (dispute view). */
+#join-court { display: none; }
+#screen-judge.camera-only #join-court {
+  display: block; width: 168px; height: auto; margin: 6px auto; padding: 6px;
+}
+#cam-only-links { text-align: center; }
+#screen-judge.camera-only #cam-only-links { display: block; }
+.link-sep { color: #5a6b8a; }

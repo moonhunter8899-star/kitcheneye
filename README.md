@@ -157,7 +157,9 @@ node --check js/score.js && node /tmp/test-score.js          # scoring
 - **Flow**: joiners do the minimum — join, tap their corner (Top/Bottom
   × Left/Right; halves in singles, and a picked half locks for the other
   phone), scan the court, done. Only untaken positions are shown. They
-  become silent tracking cameras: no ball screen, no buttons. The host
+  become silent tracking cameras: no ball screen, no buttons — just a
+  mini court showing their zone plus the last landing spot, so anyone can
+  point at exactly where the ball touched in a dispute. The host
   owns everything else — ball color (broadcast to all cameras), arming
   ("Start point" arms every phone), scoring, and the Hawk-Eye judge
   display. The host taps **Start match** and all phones judge live.
