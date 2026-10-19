@@ -23,6 +23,7 @@
     netPeers: [],            // v2 host: [{id, name}] of joined phones
     netDead: false,          // v2 joiner: host vanished mid-match
     camsLocked: false,       // v2 host: director confirmed all camera feeds
+    hostCorner: null,        // v2 host: the zone this phone covers
     myCorner: null,          // v2 joiner: declared corner TL|TR|BL|BR (T|B in singles)
     takenCorners: [],        // v2 joiner: corners already claimed by other phones
     matchFormat: 'doubles',  // v2 host: 'singles' (2 phones) | 'doubles' (4 phones)
@@ -780,10 +781,8 @@
       const p = S.netPeers.find(x => x.id === peerId);
       if (p && CORNERS[msg.corner]) p.corner = msg.corner;
       S.camsLocked = false; // positions changed -> host re-confirms
-      // Lock it: tell every joiner which corners/halves are taken.
-      try {
-        S.net.broadcast({ t: 'taken', corners: S.netPeers.map(x => x.corner).filter(Boolean) });
-      } catch (e) {}
+      // Lock it: tell every joiner which zones are taken.
+      broadcastTaken();
       renderLobby();
     } else if (msg.t === 'campos') {
       // Director wall: a phone reports where it stands (court feet).
@@ -802,8 +801,13 @@
       // position picker; a format change resets our pick.
       if (msg.format === 'singles' || msg.format === 'doubles') {
         if (S.matchFormat !== msg.format) { S.matchFormat = msg.format; S.myCorner = null; }
-        renderCornerPicker();
       }
+      if (Array.isArray(msg.taken)) {
+        S.takenCorners = msg.taken.filter(c => CORNERS[c]);
+        // Our pick got taken while we were away? Release it.
+        if (S.myCorner && S.takenCorners.includes(S.myCorner)) S.myCorner = null;
+      }
+      renderCornerPicker();
       return;
     }
     if (msg.t === 'taken') {
@@ -918,11 +922,16 @@
     if (ul) {
       ul.innerHTML = '';
       const rows = [{ name: 'This phone (host)' }].concat(S.netPeers.map(p => ({ name: p.name })));
-      for (const r of rows) {
+      rows.forEach((r, i) => {
         const li = document.createElement('li');
-        li.textContent = r.name;
+        const b = document.createElement('span');
+        b.className = 'num-badge';
+        b.style.background = PHONE_COLORS[i % PHONE_COLORS.length];
+        b.textContent = i + 1;
+        li.appendChild(b);
+        li.appendChild(document.createTextNode(' ' + r.name));
         ul.appendChild(li);
-      }
+      });
     }
     const n = S.netPeers.length + 1;
     const want = expectedPhones();
@@ -950,6 +959,7 @@
       if (mySeq !== (S.netSeq || 0)) { try { net.close(); } catch (e) {} return; } // user cancelled meanwhile
       S.net = net; S.netRole = 'host'; S.netPeers = []; S.camsLocked = false;
     net.matchFormat = S.matchFormat;
+    net.getTaken = takenList;
     setFormat(S.matchFormat); // refresh the format buttons for the fresh lobby
       $('lobby-code').textContent = code;
       // QR join link: point another phone's camera at it and it opens this
@@ -1169,7 +1179,6 @@
     return null;
   }
 
-  const TILE_COLORS = ['#7CFC00', '#ffd24d', '#6ec6ff'];
 
   // Joiner-declared court corners (2x2 grid mirroring the position diagram).
   const CORNERS = {
@@ -1180,7 +1189,37 @@
     T: { x: 10, y: -3, label: 'Top half' },
     B: { x: 10, y: 47, label: 'Bottom half' },
   };
-  function formatCorners() { return S.matchFormat === 'singles' ? ['T', 'B'] : ['TL', 'TR', 'BL', 'BR']; }
+  // Claimable zones on the court diagram (SVG coords, viewBox 0 0 140 224).
+  // Doubles = 4 corners, singles = top/bottom halves.
+  function zoneDefs() {
+    if (S.matchFormat === 'singles') return [
+      { code: 'T', x0: 20, y0: 16, x1: 120, y1: 112, cx: 70, cy: 64 },
+      { code: 'B', x0: 20, y0: 112, x1: 120, y1: 208, cx: 70, cy: 160 },
+    ];
+    return [
+      { code: 'TL', x0: 20, y0: 16, x1: 70, y1: 112, cx: 45, cy: 64 },
+      { code: 'TR', x0: 70, y0: 16, x1: 120, y1: 112, cx: 95, cy: 64 },
+      { code: 'BL', x0: 20, y0: 112, x1: 70, y1: 208, cx: 45, cy: 160 },
+      { code: 'BR', x0: 70, y0: 112, x1: 120, y1: 208, cx: 95, cy: 160 },
+    ];
+  }
+  function formatCorners() { return zoneDefs().map(z => z.code); }
+  // Phone identity colors: 1 = host, 2-4 = joiners in join order.
+  const PHONE_COLORS = ['#7CFC00', '#ffd24d', '#6ec6ff', '#e06c9f'];
+  // Clean court lines, no text. Centerline skips the kitchen (two segments).
+  function courtLinesSVG() {
+    const sy = y => 16 + (y / 44) * 192;
+    const g = '#7CFC00';
+    return '<rect x="20" y="16" width="100" height="192" fill="none" stroke="' + g + '" stroke-width="2"/>' +
+      '<line x1="20" y1="' + sy(15).toFixed(1) + '" x2="120" y2="' + sy(15).toFixed(1) + '" stroke="' + g + '" stroke-width="1.2"/>' +
+      '<line x1="20" y1="' + sy(29).toFixed(1) + '" x2="120" y2="' + sy(29).toFixed(1) + '" stroke="' + g + '" stroke-width="1.2"/>' +
+      '<line x1="70" y1="16" x2="70" y2="' + sy(15).toFixed(1) + '" stroke="' + g + '" stroke-width="1.2"/>' +
+      '<line x1="70" y1="' + sy(29).toFixed(1) + '" x2="70" y2="208" stroke="' + g + '" stroke-width="1.2"/>' +
+      '<line x1="20" y1="' + sy(22).toFixed(1) + '" x2="120" y2="' + sy(22).toFixed(1) + '" stroke="#5a6b8a" stroke-width="1" stroke-dasharray="5 4" opacity="0.7"/>';
+  }
+  function zoneRectSVG(z, attrs) {
+    return '<rect x="' + z.x0 + '" y="' + z.y0 + '" width="' + (z.x1 - z.x0) + '" height="' + (z.y1 - z.y0) + '" ' + attrs + '/>';
+  }
   function cornerQuadrant(p) {
     if (!p) return null;
     return (p.y < 22 ? 'T' : 'B') + (p.x < 10 ? 'L' : 'R');
@@ -1195,36 +1234,79 @@
     updateStartButton();
   }
 
+  // Host position board: each claimed zone shows that phone's number in its
+  // center. Open zones are tappable — that's how the host claims a zone.
   function renderPosDiagram() {
     const svg = $('pos-diagram');
     if (!svg) return;
-    // viewBox 0 0 140 224 — roomy enough for readable corner labels.
-    const sx = x => 20 + (x / 20) * 100;
-    const sy = y => 16 + (y / 44) * 192;
-    let s = '<rect x="20" y="16" width="100" height="192" fill="none" stroke="#7CFC00" stroke-width="1.5"/>' +
-      '<line x1="20" y1="' + sy(15).toFixed(1) + '" x2="120" y2="' + sy(15).toFixed(1) + '" stroke="#7CFC00" stroke-width="1"/>' +
-      '<line x1="20" y1="' + sy(29).toFixed(1) + '" x2="120" y2="' + sy(29).toFixed(1) + '" stroke="#7CFC00" stroke-width="1"/>' +
-      '<line x1="70" y1="16" x2="70" y2="' + sy(22).toFixed(1) + '" stroke="#7CFC00" stroke-width="1"/>';
-    // Corner/half labels — spaced so nothing overlaps.
-    const lab = (x, y, t) => '<text x="' + x + '" y="' + y + '" fill="#9fb3d9" font-size="9" text-anchor="middle">' + t + '</text>';
-    if (S.matchFormat === 'singles') {
-      s += lab(70, 10, 'TOP HALF') + lab(70, 221, 'BOTTOM HALF');
-    } else {
-      s += lab(45, 10, 'TOP LEFT') + lab(95, 10, 'TOP RIGHT') +
-           lab(45, 221, 'BOTTOM LEFT') + lab(95, 221, 'BOTTOM RIGHT');
-    }
-    const dot = (x, y, color) => {
-      const cx = Math.max(14, Math.min(126, sx(x))).toFixed(1);
-      const cy = Math.max(10, Math.min(214, sy(y))).toFixed(1);
-      return '<circle cx="' + cx + '" cy="' + cy + '" r="6" fill="' + color + '" stroke="#000" stroke-width="1"/>';
-    };
-    const selfPos = cameraCourtPos();
-    if (selfPos) s += dot(selfPos.x, selfPos.y, '#ffffff');
+    const zones = zoneDefs();
+    // claims: zone code -> { num, color }
+    const claims = {};
+    if (S.hostCorner) claims[S.hostCorner] = { num: 1, color: PHONE_COLORS[0] };
     S.netPeers.forEach((p, i) => {
-      const c = posCoords(p.pos || (p.corner ? { corner: p.corner } : null));
-      if (c) s += dot(c.x, c.y, TILE_COLORS[i % TILE_COLORS.length]);
+      if (p.corner && zones.some(z => z.code === p.corner) && !claims[p.corner]) {
+        claims[p.corner] = { num: i + 2, color: PHONE_COLORS[(i + 1) % PHONE_COLORS.length] };
+      }
+    });
+    let s = courtLinesSVG();
+    zones.forEach(z => {
+      const c = claims[z.code];
+      if (c) {
+        s += zoneRectSVG(z, 'fill="' + c.color + '" opacity="0.22" rx="4"') +
+          '<circle cx="' + z.cx + '" cy="' + z.cy + '" r="16" fill="' + c.color + '"/>' +
+          '<text x="' + z.cx + '" y="' + (z.cy + 6) + '" text-anchor="middle" font-size="17" font-weight="700" fill="#0a0f1e" font-family="system-ui">' + c.num + '</text>';
+      } else {
+        s += zoneRectSVG(z, 'fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.28)" stroke-width="1" stroke-dasharray="6 5" rx="4" data-hzone="' + z.code + '" style="cursor:pointer" class="zone-avail"');
+      }
     });
     svg.innerHTML = s;
+    svg.querySelectorAll('[data-hzone]').forEach(r => {
+      const tap = e => { e.preventDefault(); hostPickZone(r.dataset.hzone); };
+      r.addEventListener('click', tap);
+      r.addEventListener('touchstart', tap, { passive: false });
+    });
+    renderPosLegend(claims);
+  }
+
+  function hostPickZone(code) {
+    if (!zoneDefs().some(z => z.code === code)) return;
+    // Can't take a joiner's zone.
+    if (S.netPeers.some(p => p.corner === code)) return;
+    S.hostCorner = code;
+    broadcastTaken();
+    renderLobby();
+  }
+
+  function broadcastTaken() {
+    if (S.netRole !== 'host' || !S.net) return;
+    try {
+      S.net.broadcast({ t: 'taken', corners: takenList() });
+    } catch (e) {}
+  }
+
+  function takenList() {
+    const t = S.netPeers.map(x => x.corner).filter(Boolean);
+    if (S.hostCorner) t.push(S.hostCorner);
+    return t;
+  }
+
+  // Legend under the diagram: number badge + phone name, matching the board.
+  function renderPosLegend(claims) {
+    const ul = $('pos-legend');
+    if (!ul) return;
+    ul.innerHTML = '';
+    const rows = [{ num: 1, color: PHONE_COLORS[0], name: 'This phone (host)' }]
+      .concat(S.netPeers.map((p, i) => ({ num: i + 2, color: PHONE_COLORS[(i + 1) % PHONE_COLORS.length], name: p.name || 'Phone' })));
+    rows.forEach(r => {
+      const li = document.createElement('li');
+      const b = document.createElement('span');
+      b.className = 'num-badge';
+      b.style.background = r.color;
+      b.textContent = r.num;
+      li.appendChild(b);
+      li.appendChild(document.createTextNode(' ' + r.name));
+      ul.appendChild(li);
+    });
   }
 
   function updateStartButton() {
@@ -1249,35 +1331,43 @@
     }
   }
 
+  // Join-phone zone picker: a tappable court. Taken zones are grayed out
+  // and dead; the picked zone lights up. No words on the court itself.
   function renderCornerPicker() {
-    const grid = $('corner-grid');
-    if (!grid) return;
-    const corners = formatCorners();
-    $('corner-sub').textContent = S.matchFormat === 'singles'
-      ? 'Tap the half you\u2019re covering — it locks so the other phone can\u2019t take it.'
-      : 'Tap the corner you\u2019re standing at.';
-    grid.innerHTML = '';
-    grid.style.gridTemplateColumns = corners.length === 2 ? '1fr' : '1fr 1fr';
-    corners.forEach(c => {
-      // Only show positions that are still available — taken ones vanish.
-      if (S.takenCorners.includes(c) && S.myCorner !== c) return;
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'corner' + (S.myCorner === c ? ' active' : '');
-      b.dataset.corner = c;
-      b.innerHTML = CORNERS[c].label.replace(' ', '<br>');
-      b.addEventListener('click', () => pickCorner(c));
-      grid.appendChild(b);
+    const svg = $('corner-svg');
+    if (!svg) return;
+    const zones = zoneDefs();
+    let s = courtLinesSVG();
+    zones.forEach(z => {
+      const taken = S.takenCorners.includes(z.code) && S.myCorner !== z.code;
+      const mine = S.myCorner === z.code;
+      if (mine) {
+        s += zoneRectSVG(z, 'fill="#7CFC00" opacity="0.28" stroke="#7CFC00" stroke-width="2.5" rx="4"') +
+          '<circle cx="' + z.cx + '" cy="' + z.cy + '" r="15" fill="#7CFC00"/>' +
+          '<path d="M ' + (z.cx - 7) + ' ' + z.cy + ' l 5 5 l 9 -10" stroke="#0a0f1e" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
+      } else if (taken) {
+        s += zoneRectSVG(z, 'fill="#232c40" opacity="0.85" rx="4"') +
+          '<line x1="' + (z.cx - 8) + '" y1="' + (z.cy - 8) + '" x2="' + (z.cx + 8) + '" y2="' + (z.cy + 8) + '" stroke="#5a6b8a" stroke-width="2.5" stroke-linecap="round"/>' +
+          '<line x1="' + (z.cx + 8) + '" y1="' + (z.cy - 8) + '" x2="' + (z.cx - 8) + '" y2="' + (z.cy + 8) + '" stroke="#5a6b8a" stroke-width="2.5" stroke-linecap="round"/>';
+      } else {
+        s += zoneRectSVG(z, 'fill="rgba(124,252,0,0.07)" stroke="rgba(124,252,0,0.45)" stroke-width="1.5" rx="4" data-zone="' + z.code + '" style="cursor:pointer" class="zone-avail"');
+      }
+    });
+    svg.innerHTML = s;
+    svg.querySelectorAll('[data-zone]').forEach(r => {
+      const tap = e => { e.preventDefault(); pickCorner(r.dataset.zone); };
+      r.addEventListener('click', tap);
+      r.addEventListener('touchstart', tap, { passive: false });
     });
     const sc = $('btn-join-scan');
     if (sc) sc.disabled = !S.myCorner;
   }
-  function paintCorners() { renderCornerPicker(); }
 
   function pickCorner(corner) {
     if (!CORNERS[corner]) return;
+    if (S.takenCorners.includes(corner) && S.myCorner !== corner) return; // taken: can't
     S.myCorner = corner;
-    paintCorners();
+    renderCornerPicker();
     $('btn-join-scan').disabled = false;
     if (S.net) { try { S.net.send({ t: 'corner', corner: corner }); } catch (e) {} }
     setJoinStatus('You\u2019re at ' + CORNERS[corner].label + ' — now scan the court from there.');
@@ -1288,6 +1378,7 @@
   function setFormat(f) {
     if (f !== 'singles' && f !== 'doubles') return;
     S.matchFormat = f;
+    if (S.hostCorner && !zoneDefs().some(z => z.code === S.hostCorner)) S.hostCorner = null;
     S.scorePrefs.mode = f; // the match score follows the format
     saveScore();
     if (S.netRole === 'host' && S.net) {

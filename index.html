@@ -50,10 +50,10 @@
       <h3>Phones in the match</h3>
       <p id="lobby-count" class="status"></p>
       <ul id="lobby-peers" class="peers"></ul>
-      <h3>Positions <span class="sub">— each phone's corner</span></h3>
-      <div class="pos-row">
+      <h3>Positions <span class="sub">— tap the zone you'll cover</span></h3>
+      <div class="pos-card">
         <svg id="pos-diagram" viewBox="0 0 140 224" class="pos-diagram" aria-label="Phone positions"></svg>
-        <p class="sub">Dots show each phone's picked corner (N up). Direct any phone that's off its mark, then lock in.</p>
+        <ul id="pos-legend" class="pos-legend"></ul>
       </div>
       <p id="lobby-status" class="status"></p>
       <button id="btn-host-scan" class="big" type="button">1 · Scan my court</button>
@@ -75,8 +75,8 @@
       <p id="lobby-join-status" class="status"></p>
       <div id="join-position" class="hidden">
         <h3>Where is this phone?</h3>
-        <p class="sub" id="corner-sub">Tap the corner you're standing at.</p>
-        <div id="corner-grid" class="corner-grid"></div>
+        <p class="sub">Tap the part of the court you'll cover. Gray = taken.</p>
+        <svg id="corner-svg" viewBox="0 0 140 224" class="zone-court" aria-label="Pick your zone"></svg>
       </div>
       <button id="btn-join" class="big primary" type="button">Join</button>
       <button id="btn-qr-scan" class="big hidden" type="button">📷 Scan QR code</button>
@@ -224,14 +224,14 @@
   </div>
 </section>
 
-<script src="js/call.js?v=11"></script>
-<script src="js/scan.js?v=11"></script>
-<script src="js/track.js?v=11"></script>
+<script src="js/call.js?v=12"></script>
+<script src="js/scan.js?v=12"></script>
+<script src="js/track.js?v=12"></script>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script src="js/netsync.js?v=11"></script>
-<script src="js/replay.js?v=11"></script>
-<script src="js/score.js?v=11"></script>
-<script src="js/qr.js?v=11"></script>
-<script src="js/app.js?v=11"></script>
+<script src="js/netsync.js?v=12"></script>
+<script src="js/replay.js?v=12"></script>
+<script src="js/score.js?v=12"></script>
+<script src="js/qr.js?v=12"></script>
+<script src="js/app.js?v=12"></script>
 </body>
 </html>

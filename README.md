@@ -161,9 +161,13 @@ node --check js/score.js && node /tmp/test-score.js          # scoring
   owns everything else — ball color (broadcast to all cameras), arming
   ("Start point" arms every phone), scoring, and the Hawk-Eye judge
   display. The host taps **Start match** and all phones judge live.
-- **Lobby**: the host sees a position diagram (labeled Top/Bottom
-  Left/Right, or Top/Bottom Half in singles) with a dot per phone — no
-  live video wall, so there's no streaming lag and joiner batteries last.
+- **Lobby**: the host sees a clean position board — a wordless court
+  where each claimed zone shows that phone's number in its center
+  (1 = host, 2–4 = joiners, color-matched to the phone list). The host
+  taps an open zone to claim it. Joiners get a tappable court too: open
+  zones glow softly, the picked zone lights up with a check, taken zones
+  are grayed out with a cross and can't be tapped. No live video wall, so
+  there's no streaming lag and joiner batteries last.
 - **Arbitration**: each bounce report carries `{x, y, at, size}` in court
   feet on the host clock (joiners sync via 5 ping/pong rounds, median
   offset). The host opens a 300 ms collection window on the first report,

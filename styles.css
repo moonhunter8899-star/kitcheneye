@@ -129,9 +129,37 @@ button.big.armed { background: #7a2e12; border-color: #a34a1f; }
   display: block; width: 220px; height: 220px; margin: 10px auto;
   background: #fff; border-radius: 10px; image-rendering: pixelated;
 }
-.pos-row { display: flex; gap: 12px; align-items: center; margin: 8px 0; }
-.pos-diagram { width: 150px; height: 240px; flex: none; background: #0a0f1e; border-radius: 10px; }
-.pos-row .sub { margin: 0; }
+/* Position board: card with the court diagram + legend side by side. */
+.pos-card {
+  display: flex; gap: 16px; align-items: center;
+  background: linear-gradient(160deg, #101a30 0%, #0a0f1e 100%);
+  border: 1px solid #22304f; border-radius: 16px;
+  padding: 16px; margin: 10px 0;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+}
+.pos-diagram {
+  width: 158px; height: 253px; flex: none;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
+}
+.pos-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.pos-legend li { display: flex; align-items: center; gap: 10px; font-size: 15px; color: #dbe4f5; }
+/* Numbered phone badge — matches the badge on the court. */
+.num-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 50%; flex: none;
+  font-size: 14px; font-weight: 800; color: #0a0f1e;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+/* Join-phone zone picker: the court itself is the control. */
+.zone-court {
+  display: block; width: 210px; height: auto; margin: 12px auto;
+  background: linear-gradient(160deg, #101a30 0%, #0a0f1e 100%);
+  border: 1px solid #22304f; border-radius: 16px; padding: 10px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  touch-action: manipulation;
+}
+.zone-avail { transition: fill 0.15s ease; }
+.zone-avail:active { fill: rgba(124, 252, 0, 0.25); }
 /* QR scanner viewfinder: dim the video edges, cut a bright square window. */
 .qr-stage { position: relative; }
 .qr-stage video { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; }
@@ -148,6 +176,7 @@ button.big.armed { background: #7a2e12; border-color: #a34a1f; }
 .peers li {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 8px; padding: 10px 12px; font-size: 15px;
+  display: flex; align-items: center; gap: 10px;
 }
 #join-code {
   text-transform: uppercase; letter-spacing: 6px; text-indent: 6px;
@@ -166,13 +195,6 @@ button.big.armed { background: #7a2e12; border-color: #a34a1f; }
 .field.check span { display: flex; align-items: center; gap: 10px; }
 .field input[type="checkbox"] { width: 24px; height: 24px; }
 
-/* Joiner corner picker: 2x2 grid mirroring the court diagram. */
-.corner-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
-.corner {
-  padding: 18px 8px; font-size: 16px; border-radius: 12px;
-  border: 2px solid #2a3a5f; background: #16213c; color: #fff; cursor: pointer;
-}
-.corner.active { border-color: #7CFC00; background: #1d3b2a; }
 
 /* Host Hawk-Eye view: the judge screen becomes one big court picture.
    The host's camera keeps tracking with its video element hidden. */

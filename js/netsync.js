@@ -102,6 +102,7 @@ class NetSync {
     this.onHostMsgCb = null;  // host: (peerId, msg)
     this.onServerCb = null;   // cb(up) on signaling-server link state
     this.matchFormat = 'doubles'; // host: shared with joiners in the welcome
+    this.getTaken = null;        // host: optional () => [zone codes] sent in the welcome
     this._pingCb = null;
   }
 
@@ -160,7 +161,7 @@ class NetSync {
       conn.on('error', function () { self._hostDrop(conn.peer); });
       // Prompt the joiner to (re)send hello — its first hello may have
       // arrived before this data handler was attached.
-      try { if (conn.open) conn.send({ t: 'welcome', format: self.matchFormat }); } catch (e) {}
+      try { if (conn.open) conn.send({ t: 'welcome', format: self.matchFormat, taken: self.getTaken ? self.getTaken() : [] }); } catch (e) {}
     });
   }
 
